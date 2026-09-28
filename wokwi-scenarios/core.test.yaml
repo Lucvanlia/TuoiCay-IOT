@@ -1,0 +1,27 @@
+name: Core irrigation controls
+version: 1
+author: Nhom 2
+steps:
+  - delay: 3200ms
+  - write-serial: "resume\n"
+  - wait-serial: "ACK RESUME"
+  - write-serial: "manual\n"
+  - wait-serial: "ACK MODE MANUAL"
+  - write-serial: "water\n"
+  - wait-serial: "ACK WATER 5s"
+  - wait-serial: "\"event\":\"watering_start\""
+  - wait-serial: "\"event\":\"watering_end\""
+  - write-serial: "stop\n"
+  - wait-serial: "ACK STOP"
+  - write-serial: "status\n"
+  - wait-serial: "\"state\":\"STOP_LATCH\""
+  - write-serial: "resume\n"
+  - wait-serial: "ACK RESUME"
+  - write-serial: "auto\n"
+  - wait-serial: "ACK MODE AUTO"
+  - set-control:
+      part-id: soil
+      control: position
+      value: 0.78
+  - wait-serial: "\"event\":\"watering_start\""
+  - wait-serial: "\"event\":\"watering_end\""
