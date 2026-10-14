@@ -1,5 +1,7 @@
 # Mạch đấu thật và tính công suất — phiên bản 1
 
+> **Lưu ý baseline:** [cấu hình một ESP32 hiện tại](MOT_ESP32_LINH_KIEN_VA_LOGIC.md) dùng mưa analog GPIO35 và công tắc/nút ở GPIO25/33. Netlist bên dưới là thiết kế cũ dùng mưa tiếp điểm GPIO27 cùng phao/STOP riêng; không lắp nguyên xi với `src/main.cpp` hiện tại. Các nguyên tắc cấp nguồn và bảo vệ bơm vẫn là tài liệu tham khảo, phải tính lại theo linh kiện đã mua.
+
 Thiết kế này đi cùng `diagram.json` và firmware hiện tại. Đây là thiết kế kỹ thuật để lắp thử, **chưa được đo hoặc nghiệm thu trên phần cứng**. Chưa có mã/nhãn bơm nên giá trị nguồn, cầu chì và tải dưới đây có điều kiện. Wokwi không kiểm chứng được nhiệt, dòng khởi động, motor kẹt hay độ an toàn ngoài trời.
 
 Xem [sơ đồ điện dạng SVG](hardware-wiring.svg) và [cách chạy Wokwi](CHAY_WOKWI.md). Bản này cụ thể hóa và điều chỉnh kế hoạch trước: khi boot/reset luôn khóa STOP và cần RESUME tại chỗ; chưa có điều khiển Internet trong firmware này.

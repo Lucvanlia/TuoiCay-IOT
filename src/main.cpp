@@ -1,362 +1,339 @@
-#include <LiquidCrystal.h>
+/*
+ * HE THONG TUOI CAY TU DONG - BAN DEMO (Wokwi + phan cung that)
+ * ---------------------------------------------------------------
+ * Cam bien : Do am dat (GPIO34), Cam bien mua (GPIO35), DHT22 (GPIO19)
+ * Dau ra   : Relay bom (GPIO26), LED canh bao mua (GPIO27), LCD1602 I2C (SDA21/SCL22)
+ *            Wokwi: GPIO18 phat xung STEP -> relay COM -> NO -> A4988 -> stepper (mo phong may bom)
+ * Dau vao  : Cong tac AUTO/MANUAL (GPIO25), Nut bom tay (GPIO33)
+ * Lenh Serial (sau nay map 1:1 sang MQTT):
+ *   a = AUTO, m = MANUAL, p = bat/tat bom (MANUAL), s = trang thai, l = nhat ky, h = tro giup
+ */
+#include <Arduino.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 #include <DHTesp.h>
+#include <string.h>
 
-// =====================================================
-// KHAI BÁO CHÂN
-// =====================================================
+#ifndef IRRIGATION_SIMULATION
+#define IRRIGATION_SIMULATION 1
+#endif
+constexpr bool SIM = IRRIGATION_SIMULATION != 0;
 
-// DHT22
-const int DHT_PIN = 19;
+// ===================== CHAN =====================
+constexpr uint8_t PIN_SOIL = 34, PIN_RAIN = 35, PIN_DHT = 19;
+constexpr uint8_t PIN_MODE = 25, PIN_BTN = 33;
+constexpr uint8_t PIN_RELAY = 26, PIN_LED = 27;
+// Chi dung tren Wokwi: Wokwi khong co motor DC/bom nen dung stepper + A4988 thay the.
+// GPIO18 chi phat xung khi bom BAT; relay COM-NO la lop chan xung thu hai.
+// Phan cung that: bo chan nay, relay NO dong nguon rieng cho bom DC.
+constexpr uint8_t PIN_PUMP_SIM = 18;
+constexpr uint32_t PUMP_SIM_HZ = 100;  // 100 buoc/s = 0.5 vong/s (2s quay 1 vong, mat de quan sat ro rang)
 
-// Potentiometer mô phỏng cảm biến mưa
-const int RAIN_PIN = 35;
+// ===================== HIEU CHUAN =====================
+// Wokwi: bien tro 0..4095 -> 0..100%.
+// That : cam bien dat dien dung (kho ~3000, uot ~1200), module mua AO (kho 4095, uot ~1000) -> PHAI DO LAI.
+constexpr int SOIL_RAW_DRY = SIM ? 0 : 3000, SOIL_RAW_WET = SIM ? 4095 : 1200;
+constexpr int RAIN_RAW_DRY = SIM ? 0 : 4095, RAIN_RAW_WET = SIM ? 4095 : 1000;
 
-// Điều khiển chế độ
-const int MODE_SWITCH_PIN = 25;
-const int MANUAL_BUTTON_PIN = 33;
+// ===================== NGUONG =====================
+constexpr int SOIL_DRY = 35;                // < 35%  : dat kho -> AUTO bat bom
+constexpr int SOIL_WET = 60;                // >= 60% : du am   -> tat bom
+constexpr int RAIN_ON = 50, RAIN_OFF = 40;  // tre (hysteresis) chong nhap nhay
+constexpr int RAIN_SOIL_RISE = 5;           // mua lam dat tang >= 5% -> thong bao
+constexpr unsigned long PUMP_MAX_MS  = SIM ? 20000 : 60000;   // bom chay toi da 1 lan
+constexpr unsigned long PUMP_REST_MS = SIM ? 10000 : 120000;  // nghi giua 2 lan tuoi AUTO
+constexpr unsigned long SENSOR_MS = 500, DHT_MS = 2500, LCD_MS = 500, REPORT_MS = 30000;
+// Wokwi relay NPN: GPIO HIGH -> COM-NO. Mach that dung Q1 NPN keo IN cua relay 5V active-low:
+// GPIO HIGH -> Q1 dan -> IN LOW -> COM-NO. Ca hai deu active-HIGH tai GPIO26.
+constexpr bool RELAY_ACTIVE_LOW = false;
 
-// Thiết bị đầu ra
-const int RELAY_PIN = 26;
-const int PUMP_LED_PIN = 27;
+// ===================== TRANG THAI =====================
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+DHTesp dht;
 
-// LCD 1602: RS, E, D4, D5, D6, D7
-LiquidCrystal lcd(13, 14, 16, 17, 18, 23);
+struct {
+  int soil = 0, rain = 0;
+  float temp = NAN, hum = NAN;
+  bool raining = false;
+} s;
 
-// DHT22
-DHTesp dhtSensor;
+bool autoMode = true, pumpOn = false, everStopped = false;
+bool statusDirty = true;
+unsigned long lastReportMs = 0;
+unsigned long pumpStartMs = 0, pumpStopMs = 0;
+int soilAtStart = 0, rainStartSoil = 0, rainNotifySoil = 0, lastSwitch = HIGH;
+const char *startReason = "";
 
-// =====================================================
-// NGƯỠNG HOẠT ĐỘNG
-// =====================================================
+// Nhat ky tuoi: vong dem 10 lan gan nhat (RAM). Sau nay day len cloud de luu lich su.
+struct LogEntry {
+  unsigned long startS, durS;
+  bool isAuto;
+  int soilBefore, soilAfter;
+  const char *startWhy, *stopWhy;
+};
+constexpr int LOG_SIZE = 10;
+LogEntry logBuf[LOG_SIZE];
+int logHead = 0, logCount = 0;
 
-const float DRY_HUMIDITY = 45.0;   // Dưới 45%: không khí khô
-const float STOP_HUMIDITY = 55.0;  // Từ 55%: dừng bơm
-const int RAIN_THRESHOLD = 50;     // Từ 50%: xem là trời mưa
-
-// Relay Module trong Wokwi mặc định kích ở mức LOW
-const int RELAY_ON = LOW;
-const int RELAY_OFF = HIGH;
-
-// =====================================================
-// BIẾN TRẠNG THÁI
-// =====================================================
-
-float temperature = 0;
-float humidity = 0;
-int rainPercent = 0;
-
-bool sensorValid = false;
-bool pumpState = false;
-bool autoMode = true;
-bool previousMode = true;
-bool previousRainState = false;
-
-// Thời gian đọc cảm biến
-unsigned long lastSensorRead = 0;
-const unsigned long SENSOR_INTERVAL = 2000;
-
-// Thời gian cập nhật LCD
-unsigned long lastLcdUpdate = 0;
-const unsigned long LCD_INTERVAL = 500;
-
-// Chống dội nút nhấn
-int lastButtonReading = HIGH;
-int stableButtonState = HIGH;
-unsigned long lastDebounceTime = 0;
-const unsigned long DEBOUNCE_DELAY = 50;
-
-// =====================================================
-// HÀM ĐIỀU KHIỂN BƠM
-// =====================================================
-
-void setPump(bool state, const char *reason) {
-  // Chỉ ghi nhật ký khi trạng thái thay đổi
-  if (pumpState == state) {
-    return;
-  }
-
-  pumpState = state;
-
-  digitalWrite(RELAY_PIN, pumpState ? RELAY_ON : RELAY_OFF);
-  digitalWrite(PUMP_LED_PIN, pumpState ? HIGH : LOW);
-
-  Serial.println();
-  Serial.println("===== NHAT KY TUOI =====");
-  Serial.print("Thoi gian: ");
-  Serial.print(millis() / 1000);
-  Serial.println(" giay");
-
-  Serial.print("Bom: ");
-  Serial.println(pumpState ? "BAT" : "TAT");
-
-  Serial.print("Ly do: ");
-  Serial.println(reason);
-
-  Serial.println("========================");
+// ===================== BOM & NHAT KY =====================
+const char *reasonText(const char *code) {
+  if (!strcmp(code, "AUTO_DRY")) return "dat kho";
+  if (!strcmp(code, "SOIL_WET")) return "dat du am";
+  if (!strcmp(code, "RAIN")) return "troi mua";
+  if (!strcmp(code, "MAX_TIME")) return "qua thoi gian";
+  if (!strcmp(code, "MANUAL_ON")) return "bat tay";
+  if (!strcmp(code, "MANUAL_OFF")) return "tat tay";
+  if (!strcmp(code, "MODE_CHANGE")) return "doi che do";
+  return code;
 }
 
-// =====================================================
-// ĐỌC CẢM BIẾN
-// =====================================================
+void setSimPumpPulses(bool on) {
+  if (!SIM) return;
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWrite(PIN_PUMP_SIM, on ? 128 : 0);
+#else
+  ledcWrite(0, on ? 128 : 0);
+#endif
+}
+
+void addLog(unsigned long now, const char *stopWhy) {
+  logBuf[logHead] = {pumpStartMs / 1000, (now - pumpStartMs) / 1000, autoMode,
+                     soilAtStart, s.soil, startReason, stopWhy};
+  logHead = (logHead + 1) % LOG_SIZE;
+  if (logCount < LOG_SIZE) logCount++;
+}
+
+void setPump(bool on, const char *reason) {
+  if (on == pumpOn) return;
+  const unsigned long now = millis();
+  if (!on) setSimPumpPulses(false);  // chan xung truoc khi relay mo
+  pumpOn = on;
+  digitalWrite(PIN_RELAY, (on != RELAY_ACTIVE_LOW) ? HIGH : LOW);
+  if (on) setSimPumpPulses(true);
+  if (on) {
+    pumpStartMs = now; soilAtStart = s.soil; startReason = reason;
+  } else {
+    pumpStopMs = now; everStopped = true; addLog(now, reason);
+  }
+  statusDirty = true;
+  Serial.printf("[%s] Bom %s | ly do: %s | dat: %d%%\r\n",
+                (!on && (!strcmp(reason, "RAIN") || !strcmp(reason, "MAX_TIME"))) ? "WARN" : "INFO",
+                on ? "BAT" : "TAT", reasonText(reason), s.soil);
+}
+
+void printLog() {
+  Serial.println("[INFO] NHAT KY TUOI (cu -> moi)");
+  if (!logCount) Serial.println("  Chua co lan tuoi nao.");
+  for (int i = 0; i < logCount; i++) {
+    const LogEntry &e = logBuf[(logHead - logCount + i + LOG_SIZE) % LOG_SIZE];
+    Serial.printf("  %d. %s | bat luc %lus | chay %lus\r\n", i + 1,
+                  e.isAuto ? "AUTO" : "MANUAL", e.startS, e.durS);
+    Serial.printf("     Dat: %d%% -> %d%% | %s -> %s\r\n",
+                  e.soilBefore, e.soilAfter, reasonText(e.startWhy), reasonText(e.stopWhy));
+  }
+  Serial.println();
+}
+
+// ===================== CHE DO & DIEU KHIEN TAY =====================
+void setMode(bool isAuto, const char *source) {
+  if (isAuto == autoMode) return;
+  setPump(false, "MODE_CHANGE");
+  autoMode = isAuto;
+  statusDirty = true;
+  Serial.printf("[INFO] Che do: %s | nguon: %s\r\n", isAuto ? "AUTO" : "MANUAL", source);
+}
+
+void manualToggle(const char *source) {
+  if (autoMode)   { Serial.printf("[WARN] %s: chuyen MANUAL de bom tay\r\n", source); return; }
+  if (pumpOn)     { setPump(false, "MANUAL_OFF"); return; }
+  if (s.raining)  { Serial.println("[WARN] Tu choi bat bom: dang mua"); return; }
+  if (s.soil >= SOIL_WET) { Serial.println("[WARN] Tu choi bat bom: dat da du am"); return; }
+  setPump(true, "MANUAL_ON");
+}
+
+// ===================== CAM BIEN =====================
+int readPercent(uint8_t pin, int rawLow, int rawHigh) {
+  long sum = 0;
+  for (int i = 0; i < 8; i++) sum += analogRead(pin);  // trung binh 8 mau cho do nhieu
+  return constrain(map(sum / 8, rawLow, rawHigh, 0, 100), 0, 100);
+}
 
 void readSensors() {
-  if (millis() - lastSensorRead < SENSOR_INTERVAL) {
-    return;
+  static unsigned long lastRead = 0, lastDht = 0;
+  const unsigned long now = millis();
+  if (now - lastRead >= SENSOR_MS) {
+    lastRead = now;
+    s.soil = readPercent(PIN_SOIL, SOIL_RAW_DRY, SOIL_RAW_WET);
+    s.rain = readPercent(PIN_RAIN, RAIN_RAW_DRY, RAIN_RAW_WET);
   }
-
-  lastSensorRead = millis();
-
-  // Đọc DHT22
-  TempAndHumidity data = dhtSensor.getTempAndHumidity();
-
-  if (!isnan(data.temperature) && !isnan(data.humidity)) {
-    temperature = data.temperature;
-    humidity = data.humidity;
-    sensorValid = true;
-  } else {
-    sensorValid = false;
-    Serial.println("Loi: Khong doc duoc DHT22");
+  if (now - lastDht >= DHT_MS) {  // DHT22 can >= 2s giua 2 lan doc
+    lastDht = now;
+    TempAndHumidity d = dht.getTempAndHumidity();
+    const bool ok = dht.getStatus() == DHTesp::ERROR_NONE;
+    s.temp = ok ? d.temperature : NAN;
+    s.hum = ok ? d.humidity : NAN;
   }
-
-  // Đọc cảm biến mưa mô phỏng
-  int rainRaw = analogRead(RAIN_PIN);
-
-  rainPercent = map(rainRaw, 0, 4095, 0, 100);
-  rainPercent = constrain(rainPercent, 0, 100);
-
-  Serial.println();
-  Serial.println("----- DU LIEU CAM BIEN -----");
-
-  if (sensorValid) {
-    Serial.print("Nhiet do: ");
-    Serial.print(temperature, 1);
-    Serial.println(" C");
-
-    Serial.print("Do am khong khi: ");
-    Serial.print(humidity, 1);
-    Serial.println(" %");
-  }
-
-  Serial.print("Muc mua: ");
-  Serial.print(rainPercent);
-  Serial.println(" %");
-
-  Serial.print("Che do: ");
-  Serial.println(autoMode ? "AUTO" : "MANUAL");
-
-  Serial.print("Bom: ");
-  Serial.println(pumpState ? "ON" : "OFF");
-
-  Serial.println("---------------------------");
 }
 
-// =====================================================
-// XỬ LÝ CẢM BIẾN MƯA
-// =====================================================
+// Mua: chan bom + thong bao khi bat dau/het mua va khi mua lam do am dat tang
+void updateRain() {
+  const bool was = s.raining;
+  if (!s.raining && s.rain >= RAIN_ON) s.raining = true;
+  else if (s.raining && s.rain <= RAIN_OFF) s.raining = false;
 
-void checkRainNotification() {
-  bool raining = rainPercent >= RAIN_THRESHOLD;
-
-  if (raining && !previousRainState) {
-    Serial.println();
-    Serial.println("CANH BAO: PHAT HIEN TROI MUA");
-    Serial.println("He thong se dung bom.");
-    Serial.println("Do am khong khi co xu huong tang.");
+  if (s.raining && !was) {
+    rainStartSoil = rainNotifySoil = s.soil;
+    statusDirty = true;
+    Serial.printf("[WARN] Phat hien troi mua: %d%% | tam dung tuoi\r\n", s.rain);
   }
-
-  if (!raining && previousRainState) {
-    Serial.println();
-    Serial.println("THONG BAO: TROI DA NGUNG MUA");
+  if (s.raining && s.soil >= rainNotifySoil + RAIN_SOIL_RISE) {
+    Serial.printf("[INFO] Mua lam do am dat tang: %d%% -> %d%%\r\n", rainStartSoil, s.soil);
+    rainNotifySoil = s.soil;
   }
-
-  previousRainState = raining;
+  if (!s.raining && was) {
+    statusDirty = true;
+    Serial.printf("[INFO] Troi da tanh | dat: %d%% (%+d%% trong con mua)\r\n", s.soil, s.soil - rainStartSoil);
+  }
+  digitalWrite(PIN_LED, s.raining ? HIGH : LOW);
 }
 
-// =====================================================
-// CHẾ ĐỘ TỰ ĐỘNG
-// =====================================================
-
-void handleAutoMode() {
-  if (!sensorValid) {
-    setPump(false, "Loi cam bien DHT22");
-    return;
+// ===================== LOGIC TUOI =====================
+void control() {
+  // 1) An toan - ap dung cho ca AUTO va MANUAL
+  if (pumpOn) {
+    if (s.raining)                                  setPump(false, "RAIN");
+    else if (s.soil >= SOIL_WET)                    setPump(false, "SOIL_WET");
+    else if (millis() - pumpStartMs >= PUMP_MAX_MS) setPump(false, "MAX_TIME");
   }
-
-  // Trường hợp 2: Trời mưa
-  if (rainPercent >= RAIN_THRESHOLD) {
-    setPump(false, "Phat hien troi mua");
-    return;
-  }
-
-  // Trường hợp 1: Trời khô
-  if (humidity < DRY_HUMIDITY) {
-    setPump(true, "Khong khi kho, bat bom tu dong");
-    return;
-  }
-
-  // Độ ẩm đã tăng đủ thì tắt bơm
-  if (humidity >= STOP_HUMIDITY) {
-    setPump(false, "Do am da dat nguong");
-  }
-
-  // Khoảng 45–55% giữ nguyên trạng thái để relay
-  // không bật/tắt liên tục.
+  // 2) AUTO: dat kho + khong mua + da nghi du -> bat bom
+  const bool rested = !everStopped || millis() - pumpStopMs >= PUMP_REST_MS;
+  if (autoMode && !pumpOn && !s.raining && s.soil < SOIL_DRY && rested) setPump(true, "AUTO_DRY");
 }
 
-// =====================================================
-// CHẾ ĐỘ THỦ CÔNG
-// =====================================================
+// ===================== NUT / CONG TAC / SERIAL =====================
+void readInputs() {
+  // Cong tac: chi xu ly khi gat (canh), de lenh tu xa (Serial/MQTT) van doi duoc che do
+  const int sw = digitalRead(PIN_MODE);
+  if (sw != lastSwitch) { lastSwitch = sw; setMode(sw == HIGH, "CONG TAC"); }
 
-void handleManualMode() {
-  int buttonReading = digitalRead(MANUAL_BUTTON_PIN);
-
-  if (buttonReading != lastButtonReading) {
-    lastDebounceTime = millis();
+  // Nut nhan: chong doi 50ms, nhan = LOW
+  static int lastRead = HIGH, stable = HIGH;
+  static unsigned long changedAt = 0;
+  const int r = digitalRead(PIN_BTN);
+  if (r != lastRead) { lastRead = r; changedAt = millis(); }
+  if (millis() - changedAt > 50 && r != stable) {
+    stable = r;
+    if (stable == LOW) manualToggle("NUT NHAN");
   }
+}
 
-  if (millis() - lastDebounceTime > DEBOUNCE_DELAY) {
-    if (buttonReading != stableButtonState) {
-      stableButtonState = buttonReading;
+void report() {
+  char t[12] = "--", h[12] = "--";
+  if (!isnan(s.temp)) snprintf(t, sizeof t, "%.1f", s.temp);
+  if (!isnan(s.hum)) snprintf(h, sizeof h, "%.1f", s.hum);
+  Serial.printf("\r\n[INFO] TRANG THAI | %lus\r\n", millis() / 1000);
+  Serial.printf("  Dat: %d%% | Mua: %d%% (%s)\r\n", s.soil, s.rain, s.raining ? "DANG MUA" : "KHONG MUA");
+  Serial.printf("  Nhiet do: %s C | Do am KK: %s%%\r\n", t, h);
+  Serial.printf("  Che do: %s | Bom: %s\r\n\r\n", autoMode ? "AUTO" : "MANUAL", pumpOn ? "BAT" : "TAT");
+  statusDirty = false;
+  lastReportMs = millis();
+}
 
-      // Nút nối GPIO33 với GND nên nhấn = LOW
-      if (stableButtonState == LOW) {
-        if (pumpState) {
-          setPump(false, "Nguoi dung tat bom thu cong");
-        } else {
-          setPump(true, "Nguoi dung bat bom thu cong");
-        }
-      }
+void printHelp() {
+  Serial.println("[INFO] LENH SERIAL");
+  Serial.println("  a: AUTO | m: MANUAL | p: bat/tat bom tay");
+  Serial.println("  s: trang thai | l: nhat ky | h: tro giup");
+}
+
+void handleSerial() {
+  while (Serial.available()) {
+    switch (tolower(Serial.read())) {
+      case 'a': setMode(true, "SERIAL"); break;
+      case 'm': setMode(false, "SERIAL"); break;
+      case 'p': manualToggle("SERIAL"); break;
+      case 's': report(); break;
+      case 'l': printLog(); break;
+      case 'h': printHelp(); break;
+      default: break;  // bo qua \r \n va ky tu la
     }
   }
-
-  lastButtonReading = buttonReading;
 }
 
-// =====================================================
-// HIỂN THỊ LCD
-// =====================================================
-
-void printLcdLine(int row, String content) {
-  // Giới hạn LCD còn đúng 16 ký tự
-  if (content.length() > 16) {
-    content = content.substring(0, 16);
-  }
-
-  // Thêm khoảng trắng để xóa nội dung cũ
-  while (content.length() < 16) {
-    content += " ";
-  }
-
+// ===================== LCD =====================
+void lcdLine(uint8_t row, const char *text) {
+  char buf[17];
+  snprintf(buf, sizeof buf, "%-16s", text);
   lcd.setCursor(0, row);
-  lcd.print(content);
+  lcd.print(buf);
 }
 
 void updateLcd() {
-  if (millis() - lastLcdUpdate < LCD_INTERVAL) {
-    return;
-  }
+  static unsigned long last = 0;
+  if (millis() - last < LCD_MS) return;
+  last = millis();
 
-  lastLcdUpdate = millis();
-
-  if (!sensorValid) {
-    printLcdLine(0, "LOI DHT22");
-    printLcdLine(1, "KIEM TRA DAY");
-    return;
-  }
-
-  String line1 = "T:";
-  line1 += String(temperature, 1);
-  line1 += "C H:";
-  line1 += String(humidity, 0);
-  line1 += "%";
-
-  printLcdLine(0, line1);
-
-  String line2;
-
-  if (!autoMode) {
-    line2 = "MAN R:";
-    line2 += String(rainPercent);
-    line2 += "% P:";
-    line2 += pumpState ? "ON" : "OFF";
-  } else if (rainPercent >= RAIN_THRESHOLD) {
-    line2 = "MUA:";
-    line2 += String(rainPercent);
-    line2 += "% BOM:OFF";
-  } else if (pumpState) {
-    line2 = "AUTO KHO BOM:ON";
+  char l1[17], l2[17];
+  snprintf(l1, sizeof l1, "Dat%3d%% Mua%3d%%", s.soil, s.rain);
+  const char *mode = autoMode ? "AUTO" : "MAN ";
+  if (s.raining) {
+    snprintf(l2, sizeof l2, "MUA %+d%% BOM:OFF", s.soil - rainStartSoil);
+  } else if (pumpOn) {
+    const unsigned long run = millis() - pumpStartMs;
+    const unsigned long left = run >= PUMP_MAX_MS ? 0 : (PUMP_MAX_MS - run) / 1000;
+    snprintf(l2, sizeof l2, "%s BOM:ON %3lus", mode, left);
+  } else if (isnan(s.temp)) {
+    snprintf(l2, sizeof l2, "%s BOM:OFF --C", mode);
   } else {
-    line2 = "AUTO BOM:OFF";
+    snprintf(l2, sizeof l2, "%s BOM:OFF %.0fC", mode, s.temp);
+  }
+  lcdLine(0, l1);
+  lcdLine(1, l2);
+}
+
+// ===================== SETUP / LOOP =====================
+void setup() {
+  // Dat muc TAT truoc khi chuyen OUTPUT de relay khong giat luc khoi dong
+  digitalWrite(PIN_RELAY, RELAY_ACTIVE_LOW ? HIGH : LOW);
+  pinMode(PIN_RELAY, OUTPUT);
+  digitalWrite(PIN_RELAY, RELAY_ACTIVE_LOW ? HIGH : LOW);
+  pinMode(PIN_LED, OUTPUT);
+  pinMode(PIN_MODE, INPUT);
+  pinMode(PIN_BTN, INPUT_PULLUP);
+
+  if (SIM) {  // LEDC san sang nhung duty 0: bom OFF khong co xung STEP
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    ledcAttach(PIN_PUMP_SIM, PUMP_SIM_HZ, 8);
+    ledcWrite(PIN_PUMP_SIM, 0);
+#else
+    ledcSetup(0, PUMP_SIM_HZ, 8);
+    ledcAttachPin(PIN_PUMP_SIM, 0);
+    ledcWrite(0, 0);
+#endif
   }
 
-  printLcdLine(1, line2);
-}
-
-// =====================================================
-// SETUP
-// =====================================================
-
-void setup() {
   Serial.begin(115200);
+  Wire.begin(21, 22);
+  lcd.init();
+  lcd.backlight();
+  lcdLine(0, "TUOI CAY IOT");
+  lcdLine(1, "DANG KHOI DONG..");
+  dht.setup(PIN_DHT, DHTesp::DHT22);
+  delay(2500);  // lan doc dau co ca DHT22 trong khoi trang thai khoi dong
 
-  // DHT22
-  dhtSensor.setup(DHT_PIN, DHTesp::DHT22);
-
-  // Input
-  pinMode(RAIN_PIN, INPUT);
-  pinMode(MODE_SWITCH_PIN, INPUT);
-  pinMode(MANUAL_BUTTON_PIN, INPUT_PULLUP);
-
-  // Tắt bơm trước khi chuyển chân sang OUTPUT để relay không
-  // kích thoáng qua trong lúc khởi động.
-  digitalWrite(RELAY_PIN, RELAY_OFF);
-  digitalWrite(PUMP_LED_PIN, LOW);
-  pinMode(RELAY_PIN, OUTPUT);
-  pinMode(PUMP_LED_PIN, OUTPUT);
-
-  // LCD
-  lcd.begin(16, 2);
-  lcd.clear();
-
-  printLcdLine(0, "SMART IRRIGATION");
-  printLcdLine(1, "DANG KHOI DONG");
-
-  delay(1500);
-  lcd.clear();
-
-  // Đọc vị trí công tắc ban đầu
-  autoMode = digitalRead(MODE_SWITCH_PIN) == HIGH;
-  previousMode = autoMode;
-
-  Serial.println("HE THONG TUOI CAY DA KHOI DONG");
+  lastSwitch = digitalRead(PIN_MODE);
+  autoMode = lastSwitch == HIGH;
+  readSensors();
+  Serial.printf("\r\n[INFO] He thong san sang | %s\r\n", SIM ? "WOKWI" : "PHAN CUNG");
+  report();
 }
-
-// =====================================================
-// LOOP
-// =====================================================
 
 void loop() {
-  // Đọc công tắc chọn chế độ
-  autoMode = digitalRead(MODE_SWITCH_PIN) == HIGH;
-
-  // Khi vừa chuyển chế độ
-  if (autoMode != previousMode) {
-    setPump(false, "Chuyen che do hoat dong");
-
-    Serial.print("DA CHUYEN SANG CHE DO: ");
-    Serial.println(autoMode ? "AUTO" : "MANUAL");
-
-    previousMode = autoMode;
-  }
-
+  readInputs();
+  handleSerial();
   readSensors();
-  checkRainNotification();
-
-  if (autoMode) {
-    handleAutoMode();
-  } else {
-    handleManualMode();
-  }
-
+  updateRain();
+  control();
   updateLcd();
+
+  if (statusDirty || millis() - lastReportMs >= REPORT_MS) report();
 }

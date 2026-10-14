@@ -35,15 +35,24 @@ if len(parts) != len(diagram['parts']):
 pins = {
     'board-esp32-devkit-c-v4': {
         '3V3','5V','GND.1','GND.2','GND.3','TX','RX',
-        '13','14','16','17','18','19','23','25','26','27','33','35',
+        '13','14','16','17','18','19','21','22','23','25','26','27','33','34','35',
     },
     'wokwi-dht22': {'VCC','SDA','NC','GND'},
     'wokwi-potentiometer': {'VCC','GND','SIG'},
     'wokwi-slide-switch': {'1','2','3'},
-    'wokwi-lcd1602': {'VSS','VDD','V0','RS','RW','E','D4','D5','D6','D7','A','K'},
+    'wokwi-lcd1602': {
+        'VSS','VDD','V0','RS','RW','E','D4','D5','D6','D7','A','K',
+        'GND','VCC','SDA','SCL',
+    },
     'wokwi-relay-module': {'VCC','GND','IN','COM','NO','NC'},
+    'wokwi-vcc': {'VCC'}, 'wokwi-gnd': {'GND'},
     'wokwi-led': {'A','C'}, 'wokwi-resistor': {'1','2'},
     'wokwi-pushbutton': {'1.l','1.r','2.l','2.r'},
+    'wokwi-a4988': {
+        'ENABLE','MS1','MS2','MS3','RESET','SLEEP','STEP','DIR',
+        'GND.1','GND.2','VDD','1B','1A','2A','2B','VMOT',
+    },
+    'wokwi-stepper-motor': {'A-','A+','B+','B-'},
 }
 for connection in diagram['connections']:
     for endpoint in connection[:2]:
@@ -61,24 +70,29 @@ for connection in diagram['connections']:
 edges = {frozenset(c[:2]) for c in diagram['connections']}
 required_edges = [
     ('esp:19', 'dht1:SDA'), ('esp:35', 'pot1:SIG'),
-    ('lcd1:RS', 'esp:13'), ('lcd1:E', 'esp:14'),
-    ('esp:16', 'r1:1'), ('r1:2', 'lcd1:D4'),
-    ('esp:17', 'r3:1'), ('r3:2', 'lcd1:D5'),
-    ('esp:18', 'r4:1'), ('r4:2', 'lcd1:D6'),
-    ('esp:23', 'r2:1'), ('r2:2', 'lcd1:D7'),
-    ('esp:26', 'relay1:IN'), ('relay1:NO', 'r8:1'),
-    ('relay1:NC', 'r7:1'), ('esp:27', 'r5:1'),
+    ('lcd1:GND', 'esp:GND.3'), ('lcd1:VCC', 'esp:5V'),
+    ('lcd1:SDA', 'esp:21'), ('lcd1:SCL', 'esp:22'),
+    ('esp:26', 'relay1:IN'), ('esp:18', 'relay1:COM'),
+    ('relay1:NO', 'drvPump:STEP'), ('drvPump:STEP', 'rStep:1'),
+    ('rStep:2', 'gndRelayLeds:GND'), ('drvPump:RESET', 'drvPump:SLEEP'),
+    ('drvPump:1B', 'pump1:B-'), ('drvPump:1A', 'pump1:B+'),
+    ('drvPump:2A', 'pump1:A+'), ('drvPump:2B', 'pump1:A-'),
+    ('esp:27', 'r5:1'),
     ('esp:33', 'btn1:1.l'), ('esp:25', 'sw1:2'),
+    ('sw1:1', 'esp:3V3'), ('bb1:bp.2', 'bb1:bp.50'),
+    ('bb1:bn.1', 'bb1:bn.50'),
 ]
 for left, right in required_edges:
     if frozenset((left, right)) not in edges:
         errors.append(f'diagram: required wire missing {left} <-> {right}')
-if parts.get('relay1', {}).get('attrs', {}).get('transistor') != 'pnp':
-    errors.append('diagram: relay1 must be pnp so GPIO26 LOW means pump ON')
-expected_resistors = {
-    'r1': '220', 'r2': '220', 'r3': '220', 'r4': '220',
-    'r5': '220', 'r7': '220', 'r8': '220',
-}
+if parts.get('relay1', {}).get('attrs', {}).get('transistor') != 'npn':
+    errors.append('diagram: relay1 must explicitly use npn so GPIO26 HIGH means pump ON')
+for connection in diagram['connections']:
+    endpoints = set(connection[:2])
+    if any(endpoint.startswith('relay1:') for endpoint in endpoints) and any(
+            endpoint.startswith('bb1:62b.') for endpoint in endpoints):
+        errors.append('diagram: relay VCC/GND/IN must not share breadboard column 62')
+expected_resistors = {'r5': '220', 'rStep': '10000'}
 for part_id, value in expected_resistors.items():
     if parts.get(part_id, {}).get('attrs', {}).get('value') != value:
         errors.append(f'diagram: {part_id} must be {value} ohm')

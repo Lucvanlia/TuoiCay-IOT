@@ -14,7 +14,7 @@ Tài liệu này chỉ dành cho mạch mô phỏng. Sơ đồ đấu thiết b�
 | WATER | GPIO19 | LOW khi nhấn | nút xuống GND, kéo lên 10k |
 | RESUME | GPIO23 | LOW khi nhấn | nút xuống GND, kéo lên 10k |
 | Relay mô phỏng | GPIO26 | HIGH là ON | GPIO26→IN trực tiếp; module đặt pnp |
-| Tiếp điểm relay | COM/NO/NC | NO=bơm chạy, NC=bơm tắt | COM→5V; NO/NC qua hai điện trở 330Ω và LED |
+| Tiếp điểm relay | COM/NO/NC | NO=bơm chạy, NC=bơm tắt | COM←GPIO18 (xung STEP); NO→A4988 STEP→stepper `pump1` mô phỏng bơm; NC để trống |
 | LED báo khóa | GPIO25 | HIGH là sáng | GPIO25→330Ω→A; C→GND |
 | LCD I2C | GPIO21/22 | SDA/SCL | kéo lên 3V3 bằng 4,7k |
 

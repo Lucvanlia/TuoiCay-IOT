@@ -1,27 +1,76 @@
-name: Core irrigation controls
+name: Kich ban tuoi cay (3 kich ban)
 version: 1
 author: Nhom 2
 steps:
-  - delay: 3200ms
-  - write-serial: "resume\n"
-  - wait-serial: "ACK RESUME"
-  - write-serial: "manual\n"
-  - wait-serial: "ACK MODE MANUAL"
-  - write-serial: "water\n"
-  - wait-serial: "ACK WATER 5s"
-  - wait-serial: "\"event\":\"watering_start\""
-  - wait-serial: "\"event\":\"watering_end\""
-  - write-serial: "stop\n"
-  - wait-serial: "ACK STOP"
-  - write-serial: "status\n"
-  - wait-serial: "\"state\":\"STOP_LATCH\""
-  - write-serial: "resume\n"
-  - wait-serial: "ACK RESUME"
-  - write-serial: "auto\n"
-  - wait-serial: "ACK MODE AUTO"
+  # Khoi tao: dat am vua, khong mua
   - set-control:
-      part-id: soil
+      part-id: potSoil
       control: position
-      value: 0.78
-  - wait-serial: "\"event\":\"watering_start\""
-  - wait-serial: "\"event\":\"watering_end\""
+      value: 0.5
+  - set-control:
+      part-id: pot1
+      control: position
+      value: 0
+  - wait-serial: "He thong san sang"
+  - write-serial: "a"
+
+  # KB1 - AUTO: dat kho -> bom bat, du am -> bom tat
+  - set-control:
+      part-id: potSoil
+      control: position
+      value: 0.2
+  - wait-serial: "Bom BAT | ly do: dat kho"
+  - set-control:
+      part-id: potSoil
+      control: position
+      value: 0.7
+  - wait-serial: "Bom TAT | ly do: dat du am"
+
+  # KB2 - MUA: dang tuoi thi tat bom, thong bao do am dat tang do mua
+  - set-control:
+      part-id: potSoil
+      control: position
+      value: 0.2
+  - wait-serial: "Bom BAT | ly do: dat kho"
+  - set-control:
+      part-id: pot1
+      control: position
+      value: 0.8
+  - wait-serial: "Phat hien troi mua"
+  - wait-serial: "Bom TAT | ly do: troi mua"
+  - set-control:
+      part-id: potSoil
+      control: position
+      value: 0.3
+  - wait-serial: "Mua lam do am dat tang"
+  - set-control:
+      part-id: potSoil
+      control: position
+      value: 0.5
+  - set-control:
+      part-id: pot1
+      control: position
+      value: 0
+  - wait-serial: "Troi da tanh"
+
+  # KB3 - MANUAL: bat/tat bom tay, xem nhat ky
+  - write-serial: "m"
+  - wait-serial: "Che do: MANUAL"
+  - set-control:
+      part-id: potSoil
+      control: position
+      value: 0.7
+  - delay: 700ms
+  - write-serial: "p"
+  - wait-serial: "Tu choi bat bom: dat da du am"
+  - set-control:
+      part-id: potSoil
+      control: position
+      value: 0.5
+  - delay: 700ms
+  - write-serial: "p"
+  - wait-serial: "Bom BAT | ly do: bat tay"
+  - write-serial: "p"
+  - wait-serial: "Bom TAT | ly do: tat tay"
+  - write-serial: "l"
+  - wait-serial: "NHAT KY TUOI"

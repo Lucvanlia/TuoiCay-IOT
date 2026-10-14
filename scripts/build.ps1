@@ -35,6 +35,12 @@ try {
   if ($Upload) { $pioArgs += @('--target', 'upload', '--upload-port', $Port) }
   & $pioPath @pioArgs
   if ($LASTEXITCODE -ne 0) { throw "PlatformIO build failed ($LASTEXITCODE)." }
+  # Sync to standard .pio/build so Wokwi always sees the latest binary
+  $targetPio = Join-Path $projectRoot '.pio\build'
+  $srcFirmware = Join-Path $projectRoot '.firmware\build'
+  if (Test-Path $srcFirmware) {
+    Copy-Item -Path "$srcFirmware\*" -Destination $targetPio -Recurse -Force -ErrorAction SilentlyContinue
+  }
 } finally {
   $env:PLATFORMIO_BUILD_DIR = $previousBuildDir
   if ($mappedDrive) { & subst.exe $mappedDrive /D }

@@ -1,5 +1,7 @@
 # Báo cáo dự toán và kiểm soát mua sắm — tưới cây IoT
 
+> **Đọc trước khi mua:** [cấu hình một ESP32 đang dùng](MOT_ESP32_LINH_KIEN_VA_LOGIC.md). Dự toán ngày 28/09 dưới đây dùng cảm biến mưa 12V tiếp điểm khô và giả định bơm chưa xác nhận; firmware hiện tại đọc mưa AO ở GPIO35. Không mua theo bảng cũ nếu chưa thống nhất lại cảm biến, điện áp bơm và nguồn.
+
 Ngày tra cứu: 28/09/2026. Phạm vi: một bộ ESP32, một vùng tưới DC, đã có laptop/Wi-Fi. Giá dưới đây là giá hiển thị từ các trang được truy xuất, một số kết quả là bản lưu của công cụ tìm kiếm; **không phải báo giá đã xác nhận hay bảo đảm tồn kho**. Cần xác nhận lại giá, VAT, phí giao và đúng phiên bản khi đặt hàng.
 
 Liên quan: [kế hoạch triển khai và nối dây](KE_HOACH_IOT_LOCAL_AZURE.md).

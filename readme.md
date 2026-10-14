@@ -23,6 +23,9 @@ Yêu cầu chung
 
 ## Mạch và firmware đã triển khai
 
+- [Một ESP32: linh kiện mua và logic điều khiển hiện tại](docs/MOT_ESP32_LINH_KIEN_VA_LOGIC.md)
+- [Ba ca kiem thu Wokwi: thao tac, ket qua mong doi va o ghi minh chung](docs/BA_KICH_BAN_TEST_WOKWI.md)
+
 - [Tiến độ hiện hành và thứ tự công việc tiếp theo](docs/TIEN_DO.md)
 
 - [Chạy Wokwi: Ctrl+Shift+B rồi F1 → Wokwi: Start Simulator](docs/CHAY_WOKWI.md)
@@ -30,7 +33,7 @@ Yêu cầu chung
 - [Sơ đồ điện SVG](docs/hardware-wiring.svg)
 - [Kết quả kiểm thử firmware](docs/KIEM_THU_FIRMWARE.md)
 
-Firmware hiện có AUTO/MANUAL, cảm biến đất/mưa/phao, LCD, STOP/RESUME và nhật ký RAM qua Serial. Khởi động luôn khóa bơm; Wokwi chờ 3 giây rồi nhấn R. MQTT/Azure/website vẫn là giai đoạn sau. Không nạp cấu hình mô phỏng vào bơm thật.
+Firmware hiện tại có AUTO/MANUAL, cảm biến đất/mưa/DHT22, LCD, nút bơm tay và nhật ký RAM qua Serial. Build rồi Stop/Start Wokwi để nạp bản mới; ba ca test hiện hành nằm trong tài liệu liên kết phía trên. MQTT/Azure/website vẫn là giai đoạn sau. Không nạp cấu hình mô phỏng vào bơm thật.
 
 ## Kế hoạch triển khai và mua sắm
 

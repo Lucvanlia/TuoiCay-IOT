@@ -1,653 +1,89 @@
 {
   "version": 1,
-  "author": "Nhom 2 - Smart Irrigation",
+  "author": "Nhom 2",
   "editor": "wokwi",
-  "serialMonitor": {
-    "collapse": false,
-    "convertEol": false,
-    "display": "always",
-    "newline": "lf"
-  },
   "parts": [
-    {
-      "type": "wokwi-esp32-devkit-v1",
-      "id": "esp",
-      "top": 110,
-      "left": 310,
-      "attrs": {}
-    },
-    {
-      "type": "wokwi-potentiometer",
-      "id": "soil",
-      "top": 35,
-      "left": -170,
-      "attrs": {
-        "value": "512"
-      }
-    },
-    {
-      "type": "wokwi-slide-switch",
-      "id": "rain",
-      "top": 240,
-      "left": -160,
-      "attrs": {
-        "value": "",
-        "bounce": "0"
-      }
-    },
-    {
-      "type": "wokwi-slide-switch",
-      "id": "tank",
-      "top": 365,
-      "left": -160,
-      "attrs": {
-        "value": "",
-        "bounce": "0"
-      }
-    },
-    {
-      "type": "wokwi-lcd1602",
-      "id": "lcd",
-      "top": -30,
-      "left": 650,
-      "attrs": {
-        "pins": "i2c",
-        "i2cAddress": "0x27"
-      }
-    },
-    {
-      "type": "wokwi-relay-module",
-      "id": "relay",
-      "top": 230,
-      "left": 685,
-      "attrs": {
-        "transistor": "pnp"
-      }
-    },
-    {
-      "type": "wokwi-led",
-      "id": "pump",
-      "top": 350,
-      "left": 865,
-      "attrs": {
-        "color": "blue",
-        "label": "BOM (LED mo phong)"
-      }
-    },
-    {
-      "type": "wokwi-led",
-      "id": "alarm",
-      "top": 410,
-      "left": 600,
-      "attrs": {
-        "color": "red",
-        "label": "CANH BAO"
-      }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "rpump",
-      "top": 295,
-      "left": 815,
-      "attrs": {
-        "value": "330"
-      }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "ralarm",
-      "top": 380,
-      "left": 530,
-      "attrs": {
-        "value": "330"
-      }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "rsda",
-      "top": 15,
-      "left": 545,
-      "rotate": 90,
-      "attrs": {
-        "value": "4700"
-      }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "rscl",
-      "top": 15,
-      "left": 590,
-      "rotate": 90,
-      "attrs": {
-        "value": "4700"
-      }
-    },
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": -19.2, "left": -244.76, "attrs": {} },
+    { "type": "wokwi-breadboard", "id": "bb1", "top": -3, "left": 108.4, "attrs": {} },
+    { "type": "wokwi-dht22", "id": "dht1", "top": -47.7, "left": 167.4, "attrs": {} },
+    { "type": "wokwi-potentiometer", "id": "pot1", "top": -30.1, "left": 278.2, "attrs": { "value": "0" } },
+    { "type": "wokwi-potentiometer", "id": "potSoil", "top": -30.1, "left": 470, "attrs": { "value": "512" } },
+    { "type": "wokwi-text", "id": "txtRain", "top": -57.6, "left": 278.2, "attrs": { "text": "MUA" } },
+    { "type": "wokwi-text", "id": "txtSoil", "top": -57.6, "left": 460, "attrs": { "text": "DO AM DAT" } },
+    { "type": "wokwi-lcd1602", "id": "lcd1", "top": -236.57, "left": 400, "attrs": { "pins": "i2c" } },
+    { "type": "wokwi-slide-switch", "id": "sw1", "top": 119.6, "left": 348.7, "attrs": {} },
     {
       "type": "wokwi-pushbutton",
-      "id": "stop",
-      "top": 560,
-      "left": 100,
-      "attrs": {
-        "label": "DUNG",
-        "key": "S",
-        "color": "red",
-        "bounce": "0",
-        "xray": "1"
-      }
+      "id": "btn1",
+      "top": 294.2,
+      "left": 259.2,
+      "attrs": { "color": "green", "xray": "1", "label": "BOM TAY" }
     },
+    { "type": "wokwi-led", "id": "led1", "top": 102, "left": 224.6, "attrs": { "color": "red" } },
+    { "type": "wokwi-resistor", "id": "r5", "top": 147.95, "left": -86.4, "attrs": { "value": "220" } },
+    { "type": "wokwi-relay-module", "id": "relay1", "top": 115.4, "left": 720, "attrs": { "transistor": "npn" } },
+    { "type": "wokwi-a4988", "id": "drvPump", "top": 100, "left": 900, "attrs": {} },
     {
-      "type": "wokwi-pushbutton",
-      "id": "mode",
-      "top": 560,
-      "left": 270,
-      "attrs": {
-        "label": "AUTO / MAN",
-        "key": "M",
-        "color": "blue",
-        "bounce": "0",
-        "xray": "1"
-      }
+      "type": "wokwi-stepper-motor",
+      "id": "pump1",
+      "top": -40,
+      "left": 1000,
+      "attrs": { "size": "17", "arrow": "#2196f3", "display": "angle" }
     },
-    {
-      "type": "wokwi-pushbutton",
-      "id": "water",
-      "top": 560,
-      "left": 440,
-      "attrs": {
-        "label": "TUOI 5s",
-        "key": "W",
-        "color": "green",
-        "bounce": "0",
-        "xray": "1"
-      }
-    },
-    {
-      "type": "wokwi-pushbutton",
-      "id": "resume",
-      "top": 560,
-      "left": 610,
-      "attrs": {
-        "label": "RESUME",
-        "key": "R",
-        "color": "yellow",
-        "bounce": "0",
-        "xray": "1"
-      }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "pull1",
-      "top": 210,
-      "left": -40,
-      "rotate": 90,
-      "attrs": {
-        "value": "10000"
-      }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "pull2",
-      "top": 340,
-      "left": -40,
-      "rotate": 90,
-      "attrs": {
-        "value": "10000"
-      }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "pull3",
-      "top": 495,
-      "left": 95,
-      "rotate": 90,
-      "attrs": {
-        "value": "10000"
-      }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "pull4",
-      "top": 495,
-      "left": 265,
-      "rotate": 90,
-      "attrs": {
-        "value": "10000"
-      }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "pull5",
-      "top": 495,
-      "left": 435,
-      "rotate": 90,
-      "attrs": {
-        "value": "10000"
-      }
-    },
-    {
-      "type": "wokwi-resistor",
-      "id": "pull6",
-      "top": 495,
-      "left": 605,
-      "rotate": 90,
-      "attrs": {
-        "value": "10000"
-      }
-    },
-    {
-      "type": "wokwi-rgb-led",
-      "id": "rgb",
-      "top": 500,
-      "left": 835,
-      "attrs": {}
-    },
-    {
-      "type": "wokwi-text",
-      "id": "title",
-      "top": -155,
-      "left": -170,
-      "attrs": {
-        "text": "HE THONG TUOI CAY - So do logic ESP32 | Wokwi Test"
-      }
-    },
-    {
-      "type": "wokwi-text",
-      "id": "note",
-      "top": -110,
-      "left": -170,
-      "attrs": {
-        "text": "LUU Y MO PHONG: Day NPN/BSS138/diode/cau chi thuc te trong docs/PHAN_CUNG_THUC_TE.md"
-      }
-    },
-    {
-      "type": "wokwi-text",
-      "id": "soilLabel",
-      "top": 0,
-      "left": -195,
-      "attrs": {
-        "text": "CAM BIEN DO AM DAT: Tang raw = Kho hon"
-      }
-    },
-    {
-      "type": "wokwi-text",
-      "id": "rainLabel",
-      "top": 210,
-      "left": -195,
-      "attrs": {
-        "text": "MUA: Trai = Kho | Phai = Mua"
-      }
-    },
-    {
-      "type": "wokwi-text",
-      "id": "tankLabel",
-      "top": 335,
-      "left": -195,
-      "attrs": {
-        "text": "PHAO: Trai = Du Nuoc | Phai = Can"
-      }
-    },
-    {
-      "type": "wokwi-text",
-      "id": "relayLabel",
-      "top": 150,
-      "left": 640,
-      "attrs": {
-        "text": "Logic khoi: MUC CAO (HIGH) = BAT (ON) (NPN + Relay ngoai doi)"
-      }
-    },
-    {
-      "type": "wokwi-text",
-      "id": "lcdLabel",
-      "top": -70,
-      "left": 650,
-      "attrs": {
-        "text": "LCD: Bus mo phong bo qua BSS138; DUNG copy so do nay sang mach thuc te."
-      }
-    }
+    { "type": "wokwi-text", "id": "txtPump", "top": -70, "left": 1000, "attrs": { "text": "MAY BOM (mo phong)" } },
+    { "type": "wokwi-gnd", "id": "gndRelayLeds", "top": 245, "left": 1045, "attrs": {} }
   ],
   "connections": [
-    [
-      "esp:3V3",
-      "soil:VCC",
-      "red",
-      []
-    ],
-    [
-      "esp:GND.1",
-      "soil:GND",
-      "black",
-      []
-    ],
-    [
-      "soil:SIG",
-      "esp:34",
-      "green",
-      []
-    ],
-    [
-      "esp:3V3",
-      "lcd:VCC",
-      "red",
-      []
-    ],
-    [
-      "esp:GND.1",
-      "lcd:GND",
-      "black",
-      []
-    ],
-    [
-      "esp:21",
-      "lcd:SDA",
-      "green",
-      []
-    ],
-    [
-      "esp:22",
-      "lcd:SCL",
-      "blue",
-      []
-    ],
-    [
-      "rsda:1",
-      "esp:3V3",
-      "red",
-      []
-    ],
-    [
-      "rsda:2",
-      "lcd:SDA",
-      "green",
-      [
-        "v30",
-        "*"
-      ]
-    ],
-    [
-      "rscl:1",
-      "esp:3V3",
-      "red",
-      []
-    ],
-    [
-      "rscl:2",
-      "lcd:SCL",
-      "blue",
-      [
-        "v30",
-        "*"
-      ]
-    ],
-    [
-      "esp:26",
-      "relay:IN",
-      "orange",
-      [
-        "h60",
-        "v30",
-        "*"
-      ]
-    ],
-    [
-      "relay:VCC",
-      "esp:3V3",
-      "red",
-      []
-    ],
-    [
-      "relay:GND",
-      "esp:GND.1",
-      "black",
-      []
-    ],
-    [
-      "esp:3V3",
-      "relay:COM",
-      "red",
-      []
-    ],
-    [
-      "relay:NO",
-      "rpump:1",
-      "orange",
-      []
-    ],
-    [
-      "rpump:2",
-      "pump:A",
-      "orange",
-      []
-    ],
-    [
-      "pump:C",
-      "esp:GND.2",
-      "black",
-      []
-    ],
-    [
-      "esp:25",
-      "ralarm:1",
-      "orange",
-      []
-    ],
-    [
-      "ralarm:2",
-      "alarm:A",
-      "orange",
-      []
-    ],
-    [
-      "alarm:C",
-      "esp:GND.2",
-      "black",
-      []
-    ],
-    [
-      "rain:1",
-      "esp:3V3",
-      "red",
-      [
-        "v-35",
-        "h135",
-        "*"
-      ]
-    ],
-    [
-      "rain:2",
-      "esp:32",
-      "green",
-      []
-    ],
-    [
-      "rain:3",
-      "esp:GND.1",
-      "black",
-      []
-    ],
-    [
-      "pull1:1",
-      "esp:3V3",
-      "red",
-      []
-    ],
-    [
-      "pull1:2",
-      "rain:2",
-      "green",
-      [
-        "v20",
-        "*"
-      ]
-    ],
-    [
-      "tank:3",
-      "esp:3V3",
-      "red",
-      [
-        "v55",
-        "h135",
-        "*"
-      ]
-    ],
-    [
-      "tank:2",
-      "esp:35",
-      "green",
-      []
-    ],
-    [
-      "tank:1",
-      "esp:GND.1",
-      "black",
-      []
-    ],
-    [
-      "pull2:1",
-      "esp:3V3",
-      "red",
-      []
-    ],
-    [
-      "pull2:2",
-      "tank:2",
-      "green",
-      [
-        "v20",
-        "*"
-      ]
-    ],
-    [
-      "stop:1.l",
-      "esp:68",
-      "green",
-      []
-    ],
-    [
-      "stop:2.l",
-      "esp:GND.2",
-      "black",
-      []
-    ],
-    [
-      "pull3:1",
-      "esp:3V3",
-      "red",
-      []
-    ],
-    [
-      "pull3:2",
-      "stop:1.l",
-      "green",
-      [
-        "v12",
-        "*"
-      ]
-    ],
-    [
-      "mode:1.l",
-      "esp:27",
-      "green",
-      []
-    ],
-    [
-      "mode:2.l",
-      "esp:GND.2",
-      "black",
-      []
-    ],
-    [
-      "pull4:1",
-      "esp:3V3",
-      "red",
-      []
-    ],
-    [
-      "pull4:2",
-      "mode:1.l",
-      "green",
-      [
-        "v12",
-        "*"
-      ]
-    ],
-    [
-      "water:1.l",
-      "esp:5",
-      "green",
-      []
-    ],
-    [
-      "water:2.l",
-      "esp:GND.2",
-      "black",
-      []
-    ],
-    [
-      "pull5:1",
-      "esp:3V3",
-      "red",
-      []
-    ],
-    [
-      "pull5:2",
-      "water:1.l",
-      "green",
-      [
-        "v12",
-        "*"
-      ]
-    ],
-    [
-      "resume:1.l",
-      "esp:14",
-      "green",
-      []
-    ],
-    [
-      "resume:2.l",
-      "esp:GND.2",
-      "black",
-      []
-    ],
-    [
-      "pull6:1",
-      "esp:3V3",
-      "red",
-      []
-    ],
-    [
-      "pull6:2",
-      "resume:1.l",
-      "green",
-      [
-        "v12",
-        "*"
-      ]
-    ],
-    [
-      "esp:GND.2",
-      "rgb:COM",
-      "black",
-      []
-    ],
-    [
-      "esp:13",
-      "rgb:R",
-      "red",
-      []
-    ],
-    [
-      "esp:12",
-      "rgb:G",
-      "green",
-      []
-    ],
-    [
-      "esp:4",
-      "rgb:B",
-      "blue",
-      []
-    ]
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+
+    [ "esp:GND.3", "bb1:bn.1", "black", [ "h19.2", "v144", "h279.2" ] ],
+    [ "esp:5V", "bb1:bp.2", "red", [ "h-19.05", "v57.6", "h423.2" ] ],
+    [ "bb1:bp.2", "bb1:bp.50", "red", [] ],
+    [ "bb1:bn.1", "bb1:bn.50", "black", [] ],
+
+    [ "dht1:VCC", "esp:3V3", "red", [ "h-19.2", "v116.1" ] ],
+    [ "dht1:GND", "esp:GND.1", "black", [ "h9.6", "v126.1" ] ],
+    [ "esp:19", "dht1:SDA", "green", [ "h-38.25", "v-124.8", "h364.8", "v163.2", "h105.5" ] ],
+
+    [ "pot1:GND", "esp:GND.1", "black", [ "h-9.6", "v154.9" ] ],
+    [ "pot1:VCC", "esp:3V3", "red", [ "v38.4", "h-567.35" ] ],
+    [ "esp:35", "pot1:SIG", "green", [ "h-57.45", "v-105.6", "h316.8", "v144", "h298" ] ],
+
+    [ "potSoil:GND", "esp:GND.2", "black", [ "v0" ] ],
+    [ "potSoil:VCC", "esp:3V3", "red", [ "v48", "h-768" ] ],
+    [ "esp:34", "potSoil:SIG", "orange", [ "h-67.05", "v-124.8", "h768", "v153.6" ] ],
+
+    [ "lcd1:GND", "esp:GND.3", "black", [ "h-19.2", "v250.9", "h-624" ] ],
+    [ "lcd1:VCC", "esp:5V", "red", [ "v-19.2", "h-652.8", "v278.4" ] ],
+    [ "lcd1:SDA", "esp:21", "green", [ "v-38.4", "h-691.2", "v307.2" ] ],
+    [ "lcd1:SCL", "esp:22", "blue", [ "v-57.6", "h-710.4", "v326.4" ] ],
+
+    [ "sw1:1", "esp:3V3", "red", [ "v38.4", "h-499.2" ] ],
+    [ "sw1:3", "esp:GND.1", "black", [ "h0.1", "v39.7" ] ],
+    [ "esp:25", "sw1:2", "green", [ "h-38.25", "v163.2", "h652.6" ] ],
+
+    [ "esp:33", "btn1:1.l", "green", [ "h-57.45", "v182.4", "h-153.6" ] ],
+    [ "esp:GND.2", "btn1:2.l", "black", [ "h-10.4", "v56.7", "h-67.2", "v86.2" ] ],
+
+    [ "esp:27", "r5:1", "green", [ "h-28.65", "v115.2", "h182.4" ] ],
+    [ "r5:2", "led1:A", "red", [ "h277.2" ] ],
+    [ "led1:C", "gndRelayLeds:GND", "black", [ "v0" ] ],
+
+    [ "relay1:VCC", "esp:5V", "red", [ "h0" ] ],
+    [ "relay1:GND", "esp:GND.3", "black", [ "h0" ] ],
+    [ "esp:26", "relay1:IN", "green", [ "h-47.85", "v182.4", "h931.2", "v-124.6" ] ],
+
+    [ "esp:18", "relay1:COM", "orange", [] ],
+    [ "relay1:NO", "drvPump:STEP", "green", [] ],
+    [ "drvPump:RESET", "drvPump:SLEEP", "gray", [] ],
+    [ "drvPump:DIR", "esp:3V3", "red", [] ],
+    [ "drvPump:VDD", "esp:3V3", "red", [] ],
+    [ "drvPump:GND.1", "gndRelayLeds:GND", "black", [] ],
+    [ "drvPump:1B", "pump1:B-", "black", [] ],
+    [ "drvPump:1A", "pump1:B+", "green", [] ],
+    [ "drvPump:2A", "pump1:A+", "blue", [] ],
+    [ "drvPump:2B", "pump1:A-", "red", [] ]
   ],
   "dependencies": {}
 }
