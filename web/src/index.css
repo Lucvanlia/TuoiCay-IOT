@@ -1,0 +1,104 @@
+:root {
+  --font-heading: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --bg-main: #07120e;
+  --bg-card: #0d1e17;
+  --bg-card-hover: #12281f;
+  --bg-glass: rgba(13, 30, 23, 0.75);
+  --border-subtle: rgba(82, 183, 136, 0.15);
+  --border-active: rgba(82, 183, 136, 0.45);
+
+  --color-primary: #52b788;
+  --color-primary-dark: #1b4332;
+  --color-primary-deep: #012d1d;
+  --color-primary-light: #74c69d;
+  --color-mint-wash: rgba(82, 183, 136, 0.12);
+
+  --color-warning: #f59e0b;
+  --color-warning-wash: rgba(245, 158, 11, 0.15);
+  --color-danger: #ef4444;
+  --color-danger-wash: rgba(239, 68, 68, 0.15);
+  --color-info: #06b6d4;
+
+  --text-primary: #eef5f0;
+  --text-secondary: #9cb8a7;
+  --text-muted: #5e7a6a;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.5;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #08130e;
+}
+::-webkit-scrollbar-thumb {
+  background: #1b4332;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #40916c;
+}
+
+/* Typography Helpers */
+.font-heading { font-family: var(--font-heading); }
+.font-body { font-family: var(--font-body); }
+.font-mono { font-family: var(--font-mono); }
+
+/* Glass Card */
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.glass-panel:hover {
+  border-color: var(--border-active);
+}
+
+/* Glow effects */
+.glow-primary {
+  box-shadow: 0 0 20px rgba(82, 183, 136, 0.25);
+}
+.glow-danger {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+}
+
+/* Animations */
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.15); opacity: 0.3; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}

@@ -42,7 +42,7 @@ constexpr int RAIN_ON = 50, RAIN_OFF = 40;  // tre (hysteresis) chong nhap nhay
 constexpr int RAIN_SOIL_RISE = 5;           // mua lam dat tang >= 5% -> thong bao
 constexpr unsigned long PUMP_MAX_MS  = SIM ? 20000 : 60000;   // bom chay toi da 1 lan
 constexpr unsigned long PUMP_REST_MS = SIM ? 10000 : 120000;  // nghi giua 2 lan tuoi AUTO
-constexpr unsigned long SENSOR_MS = 500, DHT_MS = 2500, LCD_MS = 500, REPORT_MS = 30000;
+constexpr unsigned long SENSOR_MS = 500, DHT_MS = 2500, LCD_MS = 500, REPORT_MS = SIM ? 3000 : 15000;
 // Wokwi relay NPN: GPIO HIGH -> COM-NO. Mach that dung Q1 NPN keo IN cua relay 5V active-low:
 // GPIO HIGH -> Q1 dan -> IN LOW -> COM-NO. Ca hai deu active-HIGH tai GPIO26.
 constexpr bool RELAY_ACTIVE_LOW = false;
@@ -213,8 +213,16 @@ void control() {
 // ===================== NUT / CONG TAC / SERIAL =====================
 void readInputs() {
   // Cong tac: chi xu ly khi gat (canh), de lenh tu xa (Serial/MQTT) van doi duoc che do
+  static int sampledSwitch = HIGH;
+  static unsigned long switchChangedAt = 0;
   const int sw = digitalRead(PIN_MODE);
-  if (sw != lastSwitch) { lastSwitch = sw; setMode(sw == HIGH, "CONG TAC"); }
+  if (sw != sampledSwitch) { sampledSwitch = sw; switchChangedAt = millis(); }
+  if (sw != lastSwitch && millis() - switchChangedAt > 30) {
+    lastSwitch = sw;
+    Serial.printf("[INFO] Cong tac GPIO25: %s -> %s\r\n",
+                  sw == HIGH ? "HIGH" : "LOW", sw == HIGH ? "AUTO" : "MAN");
+    setMode(sw == HIGH, "CONG TAC");
+  }
 
   // Nut nhan: chong doi 50ms, nhan = LOW
   static int lastRead = HIGH, stable = HIGH;
@@ -234,7 +242,10 @@ void report() {
   Serial.printf("\r\n[INFO] TRANG THAI | %lus\r\n", millis() / 1000);
   Serial.printf("  Dat: %d%% | Mua: %d%% (%s)\r\n", s.soil, s.rain, s.raining ? "DANG MUA" : "KHONG MUA");
   Serial.printf("  Nhiet do: %s C | Do am KK: %s%%\r\n", t, h);
-  Serial.printf("  Che do: %s | Bom: %s\r\n\r\n", autoMode ? "AUTO" : "MANUAL", pumpOn ? "BAT" : "TAT");
+  Serial.printf("  Che do: %s | Bom: %s\r\n", autoMode ? "AUTO" : "MANUAL", pumpOn ? "BAT" : "TAT");
+  Serial.printf("TELEMETRY:{\"soil\":%d,\"rain\":%d,\"temp\":%s,\"hum\":%s,\"pump\":%s,\"mode\":\"%s\",\"raining\":%s}\r\n\r\n",
+                s.soil, s.rain, isnan(s.temp) ? "null" : t, isnan(s.hum) ? "null" : h,
+                pumpOn ? "true" : "false", autoMode ? "AUTO" : "MANUAL", s.raining ? "true" : "false");
   statusDirty = false;
   lastReportMs = millis();
 }
@@ -276,7 +287,7 @@ void updateLcd() {
   snprintf(l1, sizeof l1, "Dat%3d%% Mua%3d%%", s.soil, s.rain);
   const char *mode = autoMode ? "AUTO" : "MAN ";
   if (s.raining) {
-    snprintf(l2, sizeof l2, "MUA %+d%% BOM:OFF", s.soil - rainStartSoil);
+    snprintf(l2, sizeof l2, "MUA:KHOA BOM:OFF");
   } else if (pumpOn) {
     const unsigned long run = millis() - pumpStartMs;
     const unsigned long left = run >= PUMP_MAX_MS ? 0 : (PUMP_MAX_MS - run) / 1000;

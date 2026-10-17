@@ -6,6 +6,9 @@ compile_commands.json
 .vscode/launch.json
 .vscode/ipch
 node_modules/
+web/node_modules/
+dist/
+web/dist/
 .env
 .env.*
 !.env.example

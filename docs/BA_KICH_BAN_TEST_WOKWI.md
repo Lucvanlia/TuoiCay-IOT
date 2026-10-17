@@ -46,7 +46,7 @@ Tai lieu thao tac cho `diagram.json`, `src/main.cpp` va cau hinh `esp32doit-devk
 
 ## Ca 3 - MANUAL: chan dat uot, bat/tat tay va nhat ky
 
-**Bat dau:** Stop/Start Simulator, mưa 0%. Gui `m` qua Serial hoac gat `sw1` sang MANUAL; xac nhan `[INFO] Che do: MANUAL`.
+**Bat dau:** Stop/Start Simulator, mưa 0%. Gat `sw1` han sang phai (MAN), doi LCD hien `MAN` va Serial in `Cong tac GPIO25: LOW -> MAN` cung `[INFO] Che do: MANUAL`. Ben trai la AUTO. Chi bam nut khi da xac nhan che do; neu van la AUTO, khong danh dau ca nay Dat.
 
 | Buoc | Thao tac | Ket qua mong doi |
 |---|---|---|

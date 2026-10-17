@@ -2,3 +2,4 @@
 version = 1
 firmware = '.firmware/build/esp32doit-devkit-v1/firmware.bin'
 elf = '.firmware/build/esp32doit-devkit-v1/firmware.elf'
+rfc2217ServerPort = 4000
