@@ -69,6 +69,14 @@
 
       "history": {
         ".indexOn": ["ts", "updatedAt"]
+      },
+
+      "alerts": {
+        ".indexOn": ["ts", "timestamp"]
+      },
+
+      "roles": {
+        ".indexOn": ["email", "role"]
       }
     }
   }

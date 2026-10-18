@@ -7,16 +7,25 @@ import { TelemetryChart } from './components/TelemetryChart';
 import { LogTable } from './components/LogTable';
 import { AlertsList } from './components/AlertsList';
 import { DeviceSettings } from './components/DeviceSettings';
-import { AzureIntegration } from './components/AzureIntegration';
+import { UserRoleManagement } from './components/UserRoleManagement';
 import { WifiOff } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import {
   listenTelemetry,
   sendControl,
   listenDeviceStatus,
+  listenIrrigationLogs,
+  listenHistory,
+  listenAlerts,
+  markAllAlertsReadInFirebase,
   loginWithGoogle,
   logoutFirebase,
-  onAuthChanged
+  onAuthChanged,
+  listenAllUserRoles,
+  setUserRole as setFirebaseUserRole,
+  removeUserRole as removeFirebaseUserRole,
+  saveDeviceConfig,
+  listenDeviceConfig
 } from './firebase';
 import {
   TelemetryData,
@@ -24,7 +33,9 @@ import {
   LogEntry,
   AlertItem,
   ChartPoint,
-  ThresholdConfig
+  ThresholdConfig,
+  UserRole,
+  UserPermissionItem
 } from './types';
 
 export const App: React.FC = () => {
@@ -33,6 +44,10 @@ export const App: React.FC = () => {
   const [bridgeConnected, setBridgeConnected] = useState<boolean>(false);
   const [cloudConnected, setCloudConnected] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [mobileOpen, setMobileOpen] = useState<boolean>(false);
+  const [rolesList, setRolesList] = useState<UserPermissionItem[]>([]);
+  const [userRole, setUserRole] = useState<UserRole>('VIEWER');
   const wsRef = useRef<WebSocket | null>(null);
 
   // Configuration
@@ -95,24 +110,7 @@ export const App: React.FC = () => {
   ]);
 
   // Alerts
-  const [alerts, setAlerts] = useState<AlertItem[]>([
-    {
-      id: 'alt-1',
-      timestamp: '10:41:00',
-      severity: 'INFO',
-      title: 'Kích hoạt tưới tự động (AUTO)',
-      message: 'Độ ẩm đất giảm xuống 34% (< 35%), bơm bắt đầu chạy bù nước.',
-      read: false
-    },
-    {
-      id: 'alt-2',
-      timestamp: '09:50:22',
-      severity: 'WARN',
-      title: 'Phát hiện trời mưa',
-      message: 'Tấm cảm ứng mưa ẩm 65%, khóa tưới tự động bảo vệ bộ rễ.',
-      read: true
-    }
-  ]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
 
   // Reference for soil at pump start
   const soilAtStartRef = useRef<number>(telemetry.soilMoisture);
@@ -160,6 +158,25 @@ export const App: React.FC = () => {
                 mode: d.mode === 'MANUAL' ? 'MANUAL' : 'AUTO',
                 lastUpdated: new Date()
               }));
+            } else if (msg.type === 'alert' && msg.data) {
+              setAlerts((prev) => {
+                const exists = prev.some(a => a.id === msg.data.id || (a.title === msg.data.title && a.timestamp === msg.data.timestamp));
+                if (exists) return prev;
+                return [msg.data, ...prev];
+              });
+            } else if (msg.type === 'log' && typeof msg.text === 'string') {
+              const text = msg.text;
+              if (text.startsWith('[WARN]')) {
+                const newAlert: AlertItem = {
+                  id: `warn-${Date.now()}`,
+                  timestamp: new Date().toLocaleTimeString('vi-VN'),
+                  severity: 'WARN',
+                  title: 'Cảnh báo thiết bị (ESP32)',
+                  message: text.replace('[WARN]', '').trim(),
+                  read: false
+                };
+                setAlerts((prev) => [newAlert, ...prev]);
+              }
             }
           } catch (e) {
             console.error('[WEB] Loi doc goi tin bridge:', e);
@@ -196,6 +213,56 @@ export const App: React.FC = () => {
     return () => unsub();
   }, []);
 
+  // Lắng nghe danh sách vai trò người dùng (Firebase RBAC)
+  useEffect(() => {
+    const unsub = listenAllUserRoles((list) => {
+      setRolesList(list);
+    });
+    return () => unsub();
+  }, []);
+
+  // Tính toán role hiện tại của người dùng
+  useEffect(() => {
+    if (!currentUser) {
+      setUserRole('VIEWER');
+      return;
+    }
+
+    const email = currentUser.email?.toLowerCase();
+    if (!email) {
+      setUserRole('VIEWER');
+      return;
+    }
+
+    const found = rolesList.find((r) => r.email.toLowerCase() === email);
+    if (found) {
+      setUserRole(found.role);
+    } else {
+      // Nếu danh sách phân quyền trên Firebase chưa có ai, tự động gán ADMIN cho tài khoản đầu tiên
+      if (rolesList.length === 0) {
+        setUserRole('ADMIN');
+        setFirebaseUserRole(
+          email,
+          'ADMIN',
+          currentUser.displayName || undefined,
+          'Hệ thống tự động kích hoạt Admin đầu tiên'
+        ).catch((err) => console.error('[AUTH] Khởi tạo admin đầu tiên lỗi:', err));
+      } else {
+        setUserRole('VIEWER');
+      }
+    }
+  }, [currentUser, rolesList]);
+
+  // Bảo vệ route: Nếu vai trò là VIEWER mà đang ở tab Cấu hình hoặc Phân quyền thì chuyển về Tổng quan
+  useEffect(() => {
+    if (userRole === 'VIEWER' && (activeTab === 'settings' || activeTab === 'roles')) {
+      setActiveTab('overview');
+    }
+    if (userRole === 'OPERATOR' && activeTab === 'roles') {
+      setActiveTab('overview');
+    }
+  }, [userRole, activeTab]);
+
   // Firebase Realtime Database Listener (Cloud IoT connection)
   useEffect(() => {
     const unsubTelemetry = listenTelemetry(
@@ -225,11 +292,163 @@ export const App: React.FC = () => {
       setCloudConnected(online);
     });
 
+    const unsubLogs = listenIrrigationLogs((cloudLogs) => {
+      if (cloudLogs && cloudLogs.length > 0) {
+        setLogs(cloudLogs);
+      }
+    });
+
+    const unsubHistory = listenHistory((cloudPoints) => {
+      if (cloudPoints && cloudPoints.length > 0) {
+        setChartHistory(cloudPoints);
+      }
+    });
+
+    const unsubAlerts = listenAlerts((cloudAlerts) => {
+      if (cloudAlerts && cloudAlerts.length > 0) {
+        setAlerts(cloudAlerts);
+      }
+    });
+
+    const unsubConfig = listenDeviceConfig((cloudCfg) => {
+      if (cloudCfg) {
+        setConfig(cloudCfg);
+      }
+    });
+
     return () => {
       unsubTelemetry();
       unsubStatus();
+      unsubLogs();
+      unsubHistory();
+      unsubAlerts();
+      unsubConfig();
     };
   }, []);
+
+  // Theo dõi sự kiện thực tế để kích hoạt cảnh báo tức thì (Live Alert Watcher)
+  const prevTelemRef = useRef<TelemetryData | null>(null);
+  const initialAlertCheckedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const nowTime = new Date().toLocaleTimeString('vi-VN');
+
+    // Kiểm tra trạng thái bất thường ngay lần đầu nhận Telemetry
+    if (!initialAlertCheckedRef.current && (telemetry.soilMoisture > 0 || telemetry.rainPercentage > 0)) {
+      initialAlertCheckedRef.current = true;
+      const initialAlerts: AlertItem[] = [];
+
+      if (telemetry.isRaining || telemetry.rainPercentage >= 50) {
+        initialAlerts.push({
+          id: `rain-init-${Date.now()}`,
+          timestamp: nowTime,
+          severity: 'WARN',
+          title: 'Phát hiện trời mưa',
+          message: `Cảm biến phát hiện lượng mưa ${telemetry.rainPercentage}%. Khóa tưới tự động bảo vệ bộ rễ.`,
+          read: false
+        });
+      }
+      if (telemetry.soilMoisture >= 85) {
+        initialAlerts.push({
+          id: `soil-wet-init-${Date.now()}`,
+          timestamp: nowTime,
+          severity: 'WARN',
+          title: 'Cảnh báo: Đất bão hòa nước',
+          message: `Độ ẩm đất đạt ${telemetry.soilMoisture}%. Ngừng toàn bộ hoạt động cấp nước để chống úng rễ.`,
+          read: false
+        });
+      } else if (telemetry.soilMoisture < 35 && telemetry.soilMoisture > 0) {
+        initialAlerts.push({
+          id: `soil-dry-init-${Date.now()}`,
+          timestamp: nowTime,
+          severity: 'WARN',
+          title: 'Cảnh báo: Đất khô cằn',
+          message: `Độ ẩm đất chỉ còn ${telemetry.soilMoisture}% (< 35%). Cần cấp nước bổ sung cho cây.`,
+          read: false
+        });
+      }
+
+      if (initialAlerts.length > 0) {
+        setAlerts((prevA) => [...initialAlerts, ...prevA]);
+      }
+    }
+
+    // Theo dõi biến thiên trạng thái giữa các lần cập nhật Telemetry
+    if (prevTelemRef.current) {
+      const prev = prevTelemRef.current;
+
+      // 1. Chuyển trạng thái Mưa (Bắt đầu / Tạnh mưa)
+      if (!prev.isRaining && telemetry.isRaining) {
+        const newAlert: AlertItem = {
+          id: `rain-${Date.now()}`,
+          timestamp: nowTime,
+          severity: 'WARN',
+          title: 'Phát hiện trời mưa',
+          message: `Cảm biến phát hiện lượng mưa ${telemetry.rainPercentage}%. Khóa tưới tự động bảo vệ bộ rễ.`,
+          read: false
+        };
+        setAlerts((prevA) => [newAlert, ...prevA.filter(a => a.id !== newAlert.id)]);
+      } else if (prev.isRaining && !telemetry.isRaining) {
+        const newAlert: AlertItem = {
+          id: `rain-stop-${Date.now()}`,
+          timestamp: nowTime,
+          severity: 'INFO',
+          title: 'Trời đã tạnh mưa',
+          message: `Cảm biến mưa khô ráo (${telemetry.rainPercentage}%). Hệ thống sẵn sàng tưới trở lại.`,
+          read: false
+        };
+        setAlerts((prevA) => [newAlert, ...prevA.filter(a => a.id !== newAlert.id)]);
+      }
+
+      // 2. Chuyển trạng thái Đất (Bão hòa >= 85% / Khô < 35%)
+      if (prev.soilMoisture < 85 && telemetry.soilMoisture >= 85) {
+        const newAlert: AlertItem = {
+          id: `soil-wet-${Date.now()}`,
+          timestamp: nowTime,
+          severity: 'WARN',
+          title: 'Cảnh báo: Đất bão hòa nước',
+          message: `Độ ẩm đất đạt ${telemetry.soilMoisture}% (rất cao). Ngừng cấp nước để chống úng rễ.`,
+          read: false
+        };
+        setAlerts((prevA) => [newAlert, ...prevA.filter(a => a.id !== newAlert.id)]);
+      } else if (prev.soilMoisture >= 35 && telemetry.soilMoisture < 35) {
+        const newAlert: AlertItem = {
+          id: `soil-dry-${Date.now()}`,
+          timestamp: nowTime,
+          severity: 'WARN',
+          title: 'Cảnh báo: Đất khô cằn',
+          message: `Độ ẩm đất giảm còn ${telemetry.soilMoisture}% (< 35%). Cần cấp nước bổ sung cho cây.`,
+          read: false
+        };
+        setAlerts((prevA) => [newAlert, ...prevA.filter(a => a.id !== newAlert.id)]);
+      }
+
+      // 3. Chuyển trạng thái Máy bơm (BẬT / TẮT)
+      if (!prev.pumpOn && telemetry.pumpOn) {
+        const newAlert: AlertItem = {
+          id: `pump-on-${Date.now()}`,
+          timestamp: nowTime,
+          severity: 'INFO',
+          title: `Máy bơm BẬT (${telemetry.mode})`,
+          message: `Bắt đầu chu trình tưới bù ẩm. Độ ẩm đất khởi điểm: ${telemetry.soilMoisture}%.`,
+          read: false
+        };
+        setAlerts((prevA) => [newAlert, ...prevA.filter(a => a.id !== newAlert.id)]);
+      } else if (prev.pumpOn && !telemetry.pumpOn) {
+        const newAlert: AlertItem = {
+          id: `pump-off-${Date.now()}`,
+          timestamp: nowTime,
+          severity: 'INFO',
+          title: 'Máy bơm TẮT',
+          message: `Hoàn tất chu trình tưới. Độ ẩm đất hiện tại: ${telemetry.soilMoisture}%.`,
+          read: false
+        };
+        setAlerts((prevA) => [newAlert, ...prevA.filter(a => a.id !== newAlert.id)]);
+      }
+    }
+
+    prevTelemRef.current = telemetry;
+  }, [telemetry.soilMoisture, telemetry.isRaining, telemetry.rainPercentage, telemetry.pumpOn, telemetry.mode]);
 
   // Simulation Clock Tick (runs every 1 second)
   useEffect(() => {
@@ -468,6 +687,21 @@ export const App: React.FC = () => {
     }));
   };
 
+  // Lưu cấu hình ngưỡng cảm biến và đồng bộ xuống ESP32 / Firebase Cloud
+  const handleSaveConfig = async (newCfg: ThresholdConfig) => {
+    setConfig(newCfg);
+    // 1. Gửi qua WebSocket nếu đang kết nối Bridge Local
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'config', data: newCfg }));
+    }
+    // 2. Lưu đồng bộ lên Firebase Realtime Database
+    try {
+      await saveDeviceConfig(newCfg);
+    } catch (e) {
+      console.error('[CONFIG] Lỗi lưu cấu hình lên Firebase:', e);
+    }
+  };
+
   const unreadAlerts = alerts.filter((a) => !a.read).length;
 
   return (
@@ -478,6 +712,11 @@ export const App: React.FC = () => {
         setActiveTab={setActiveTab}
         isOnline={simMode || bridgeConnected || cloudConnected}
         alertCount={unreadAlerts}
+        collapsed={sidebarCollapsed}
+        setCollapsed={setSidebarCollapsed}
+        mobileOpen={mobileOpen}
+        setMobileOpen={setMobileOpen}
+        userRole={userRole}
       />
 
       {/* Main Content Area */}
@@ -492,6 +731,8 @@ export const App: React.FC = () => {
           bridgeConnected={bridgeConnected}
           cloudConnected={cloudConnected}
           user={currentUser}
+          userRole={userRole}
+          onToggleMobileMenu={() => setMobileOpen(true)}
           onLogin={loginWithGoogle}
           onLogout={logoutFirebase}
         />
@@ -555,6 +796,7 @@ export const App: React.FC = () => {
               {/* Pump Control Panel & Thresholds */}
               <ControlPanel
                 telemetry={telemetry}
+                userRole={userRole}
                 onSetMode={handleSetMode}
                 onTogglePump={handleTogglePump}
               />
@@ -571,19 +813,38 @@ export const App: React.FC = () => {
           {activeTab === 'alerts' && (
             <AlertsList
               alerts={alerts}
-              onMarkAllRead={() => setAlerts((prev) => prev.map((a) => ({ ...a, read: true })))}
+              onMarkAllRead={() => {
+                setAlerts((prev) => prev.map((a) => ({ ...a, read: true })));
+                markAllAlertsReadInFirebase(alerts.map((a) => a.id));
+              }}
             />
           )}
 
-          {activeTab === 'settings' && (
+          {activeTab === 'settings' && userRole !== 'VIEWER' && (
             <DeviceSettings
               config={config}
-              onSaveConfig={(cfg) => setConfig(cfg)}
+              onSaveConfig={handleSaveConfig}
             />
           )}
 
-          {activeTab === 'azure' && (
-            <AzureIntegration />
+          {activeTab === 'roles' && userRole === 'ADMIN' && (
+            <UserRoleManagement
+              currentUser={currentUser}
+              currentUserRole={userRole}
+              rolesList={rolesList}
+              onSetRole={async (email, role, displayName) => {
+                await setFirebaseUserRole(
+                  email,
+                  role,
+                  displayName,
+                  currentUser?.displayName || currentUser?.email || 'Admin'
+                );
+              }}
+              onRemoveRole={async (id) => {
+                await removeFirebaseUserRole(id);
+              }}
+              onLogin={loginWithGoogle}
+            />
           )}
         </main>
       </div>

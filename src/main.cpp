@@ -13,6 +13,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <DHTesp.h>
 #include <string.h>
+#include <Preferences.h>
 
 #ifndef IRRIGATION_SIMULATION
 #define IRRIGATION_SIMULATION 1
@@ -35,17 +36,18 @@ constexpr uint32_t PUMP_SIM_HZ = 100;  // 100 buoc/s = 0.5 vong/s (2s quay 1 von
 constexpr int SOIL_RAW_DRY = SIM ? 0 : 3000, SOIL_RAW_WET = SIM ? 4095 : 1200;
 constexpr int RAIN_RAW_DRY = SIM ? 0 : 4095, RAIN_RAW_WET = SIM ? 4095 : 1000;
 
-// ===================== NGUONG =====================
-constexpr int SOIL_DRY = 35;                // < 35%  : dat kho -> AUTO bat bom
-constexpr int SOIL_WET = 60;                // >= 60% : du am   -> tat bom
-constexpr int RAIN_ON = 50, RAIN_OFF = 40;  // tre (hysteresis) chong nhap nhay
+// ===================== NGUONG DONG (LUU NVS PREFERENCES) =====================
+int soilDry = 35;                // < 35%  : dat kho -> AUTO bat bom
+int soilWet = 60;                // >= 60% : du am   -> tat bom
+int rainThreshold = 50;          // >= 50% : phat hien mua -> khoa bom
 constexpr int RAIN_SOIL_RISE = 5;           // mua lam dat tang >= 5% -> thong bao
-constexpr unsigned long PUMP_MAX_MS  = SIM ? 20000 : 60000;   // bom chay toi da 1 lan
-constexpr unsigned long PUMP_REST_MS = SIM ? 10000 : 120000;  // nghi giua 2 lan tuoi AUTO
+unsigned long pumpMaxMs  = SIM ? 20000 : 60000;   // bom chay toi da 1 lan
+unsigned long pumpRestMs = SIM ? 10000 : 120000;  // nghi giua 2 lan tuoi AUTO
 constexpr unsigned long SENSOR_MS = 500, DHT_MS = 2500, LCD_MS = 500, REPORT_MS = SIM ? 3000 : 15000;
 // Wokwi relay NPN: GPIO HIGH -> COM-NO. Mach that dung Q1 NPN keo IN cua relay 5V active-low:
 // GPIO HIGH -> Q1 dan -> IN LOW -> COM-NO. Ca hai deu active-HIGH tai GPIO26.
 constexpr bool RELAY_ACTIVE_LOW = false;
+Preferences prefs;
 
 // ===================== TRANG THAI =====================
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -147,7 +149,7 @@ void manualToggle(const char *source) {
   if (autoMode)   { Serial.printf("[WARN] %s: chuyen MANUAL de bom tay\r\n", source); return; }
   if (pumpOn)     { setPump(false, "MANUAL_OFF"); return; }
   if (s.raining)  { Serial.println("[WARN] Tu choi bat bom: dang mua"); return; }
-  if (s.soil >= SOIL_WET) { Serial.println("[WARN] Tu choi bat bom: dat da du am"); return; }
+  if (s.soil >= soilWet) { Serial.println("[WARN] Tu choi bat bom: dat da du am"); return; }
   setPump(true, "MANUAL_ON");
 }
 
@@ -178,8 +180,8 @@ void readSensors() {
 // Mua: chan bom + thong bao khi bat dau/het mua va khi mua lam do am dat tang
 void updateRain() {
   const bool was = s.raining;
-  if (!s.raining && s.rain >= RAIN_ON) s.raining = true;
-  else if (s.raining && s.rain <= RAIN_OFF) s.raining = false;
+  if (!s.raining && s.rain >= rainThreshold) s.raining = true;
+  else if (s.raining && s.rain <= (rainThreshold - 10)) s.raining = false;
 
   if (s.raining && !was) {
     rainStartSoil = rainNotifySoil = s.soil;
@@ -202,12 +204,50 @@ void control() {
   // 1) An toan - ap dung cho ca AUTO va MANUAL
   if (pumpOn) {
     if (s.raining)                                  setPump(false, "RAIN");
-    else if (s.soil >= SOIL_WET)                    setPump(false, "SOIL_WET");
-    else if (millis() - pumpStartMs >= PUMP_MAX_MS) setPump(false, "MAX_TIME");
+    else if (s.soil >= soilWet)                     setPump(false, "SOIL_WET");
+    else if (millis() - pumpStartMs >= pumpMaxMs)   setPump(false, "MAX_TIME");
   }
   // 2) AUTO: dat kho + khong mua + da nghi du -> bat bom
-  const bool rested = !everStopped || millis() - pumpStopMs >= PUMP_REST_MS;
-  if (autoMode && !pumpOn && !s.raining && s.soil < SOIL_DRY && rested) setPump(true, "AUTO_DRY");
+  const bool rested = !everStopped || millis() - pumpStopMs >= pumpRestMs;
+  if (autoMode && !pumpOn && !s.raining && s.soil < soilDry && rested) setPump(true, "AUTO_DRY");
+}
+
+// ===================== CAP NHAT NGUONG (TU DONG DONG BO NVS) =====================
+void applyConfig(int dry, int wet, int rain, int maxSec, int restSec) {
+  if (dry < 5) dry = 5;
+  if (dry > 90) dry = 90;
+  if (wet <= dry) wet = dry + 5;
+  if (wet > 95) wet = 95;
+  if (rain < 10) rain = 10;
+  if (rain > 90) rain = 90;
+  if (maxSec < 5) maxSec = 5;
+  if (maxSec > 300) maxSec = 300;
+  if (restSec < 2) restSec = 2;
+  if (restSec > 600) restSec = 600;
+
+  soilDry = dry;
+  soilWet = wet;
+  rainThreshold = rain;
+  pumpMaxMs = (unsigned long)maxSec * 1000UL;
+  pumpRestMs = (unsigned long)restSec * 1000UL;
+
+  prefs.putInt("soilDry", soilDry);
+  prefs.putInt("soilWet", soilWet);
+  prefs.putInt("rainOn", rainThreshold);
+  prefs.putULong("pumpMax", pumpMaxMs);
+  prefs.putULong("pumpRest", pumpRestMs);
+
+  Serial.printf("[INFO] Da cap nhat nguong NVS: Dat kho <%d%%, Du am >=%d%%, Mua >=%d%%, Max bom %lus, Nghi %lus\r\n",
+                soilDry, soilWet, rainThreshold, pumpMaxMs / 1000, pumpRestMs / 1000);
+
+  // Kiem tra an toan ngay lap tuc sau khi doi nguong:
+  if (pumpOn && s.soil >= soilWet) {
+    setPump(false, "SOIL_WET");
+  } else if (autoMode && !pumpOn && !s.raining && s.soil < soilDry) {
+    setPump(true, "AUTO_DRY");
+  }
+
+  statusDirty = true;
 }
 
 // ===================== NUT / CONG TAC / SERIAL =====================
@@ -243,9 +283,12 @@ void report() {
   Serial.printf("  Dat: %d%% | Mua: %d%% (%s)\r\n", s.soil, s.rain, s.raining ? "DANG MUA" : "KHONG MUA");
   Serial.printf("  Nhiet do: %s C | Do am KK: %s%%\r\n", t, h);
   Serial.printf("  Che do: %s | Bom: %s\r\n", autoMode ? "AUTO" : "MANUAL", pumpOn ? "BAT" : "TAT");
-  Serial.printf("TELEMETRY:{\"soil\":%d,\"rain\":%d,\"temp\":%s,\"hum\":%s,\"pump\":%s,\"mode\":\"%s\",\"raining\":%s}\r\n\r\n",
+  Serial.printf("  Nguong hien tai: Dat kho <%d%%, Du am >=%d%%, Mua >=%d%%, Max bom %lus, Nghi %lus\r\n",
+                soilDry, soilWet, rainThreshold, pumpMaxMs / 1000, pumpRestMs / 1000);
+  Serial.printf("TELEMETRY:{\"soil\":%d,\"rain\":%d,\"temp\":%s,\"hum\":%s,\"pump\":%s,\"mode\":\"%s\",\"raining\":%s,\"cfg\":{\"soilDry\":%d,\"soilWet\":%d,\"rain\":%d,\"maxPump\":%lu,\"rest\":%lu}}\r\n\r\n",
                 s.soil, s.rain, isnan(s.temp) ? "null" : t, isnan(s.hum) ? "null" : h,
-                pumpOn ? "true" : "false", autoMode ? "AUTO" : "MANUAL", s.raining ? "true" : "false");
+                pumpOn ? "true" : "false", autoMode ? "AUTO" : "MANUAL", s.raining ? "true" : "false",
+                soilDry, soilWet, rainThreshold, pumpMaxMs / 1000, pumpRestMs / 1000);
   statusDirty = false;
   lastReportMs = millis();
 }
@@ -254,18 +297,63 @@ void printHelp() {
   Serial.println("[INFO] LENH SERIAL");
   Serial.println("  a: AUTO | m: MANUAL | p: bat/tat bom tay");
   Serial.println("  s: trang thai | l: nhat ky | h: tro giup");
+  Serial.println("  c,<dry>,<wet>,<rain>,<maxSec>,<restSec>: cai dat nguong (VD: c,10,20,50,20,10)");
 }
+
+void processSerialCommand(const String &cmd) {
+  if (cmd.equalsIgnoreCase("a")) { setMode(true, "SERIAL"); return; }
+  if (cmd.equalsIgnoreCase("m")) { setMode(false, "SERIAL"); return; }
+  if (cmd.equalsIgnoreCase("p")) { manualToggle("SERIAL"); return; }
+  if (cmd.equalsIgnoreCase("s")) { report(); return; }
+  if (cmd.equalsIgnoreCase("l")) { printLog(); return; }
+  if (cmd.equalsIgnoreCase("h")) { printHelp(); return; }
+
+  // Format lenh nguong ngan gon: c,10,20,50,20,10
+  if (cmd.startsWith("c,") || cmd.startsWith("C,")) {
+    int dry = 0, wet = 0, rain = 0, maxSec = 0, restSec = 0;
+    if (sscanf(cmd.c_str() + 2, "%d,%d,%d,%d,%d", &dry, &wet, &rain, &maxSec, &restSec) >= 2) {
+      if (rain <= 0) rain = rainThreshold;
+      if (maxSec <= 0) maxSec = pumpMaxMs / 1000;
+      if (restSec <= 0) restSec = pumpRestMs / 1000;
+      applyConfig(dry, wet, rain, maxSec, restSec);
+      return;
+    }
+  }
+
+  // Format lenh nguong JSON: CFG:{"soilDry":10,"soilWet":20,...}
+  if (cmd.startsWith("CFG:") || cmd.startsWith("cfg:")) {
+    int dry = soilDry, wet = soilWet, rain = rainThreshold;
+    int maxSec = pumpMaxMs / 1000, restSec = pumpRestMs / 1000;
+    int idx;
+    if ((idx = cmd.indexOf("\"soilDry\":")) >= 0) dry = cmd.substring(idx + 10).toInt();
+    if ((idx = cmd.indexOf("\"soilWet\":")) >= 0) wet = cmd.substring(idx + 10).toInt();
+    if ((idx = cmd.indexOf("\"rainThreshold\":")) >= 0) rain = cmd.substring(idx + 16).toInt();
+    if ((idx = cmd.indexOf("\"maxPumpSeconds\":")) >= 0) maxSec = cmd.substring(idx + 17).toInt();
+    else if ((idx = cmd.indexOf("\"maxPump\":")) >= 0) maxSec = cmd.substring(idx + 10).toInt();
+    if ((idx = cmd.indexOf("\"restCooldownSeconds\":")) >= 0) restSec = cmd.substring(idx + 22).toInt();
+    else if ((idx = cmd.indexOf("\"rest\":")) >= 0) restSec = cmd.substring(idx + 7).toInt();
+
+    applyConfig(dry, wet, rain, maxSec, restSec);
+    return;
+  }
+}
+
+String serialBuffer = "";
 
 void handleSerial() {
   while (Serial.available()) {
-    switch (tolower(Serial.read())) {
-      case 'a': setMode(true, "SERIAL"); break;
-      case 'm': setMode(false, "SERIAL"); break;
-      case 'p': manualToggle("SERIAL"); break;
-      case 's': report(); break;
-      case 'l': printLog(); break;
-      case 'h': printHelp(); break;
-      default: break;  // bo qua \r \n va ky tu la
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      serialBuffer.trim();
+      if (serialBuffer.length() > 0) {
+        processSerialCommand(serialBuffer);
+      }
+      serialBuffer = "";
+    } else {
+      if (serialBuffer.length() < 120) {
+        serialBuffer += c;
+      }
     }
   }
 }
@@ -290,7 +378,7 @@ void updateLcd() {
     snprintf(l2, sizeof l2, "MUA:KHOA BOM:OFF");
   } else if (pumpOn) {
     const unsigned long run = millis() - pumpStartMs;
-    const unsigned long left = run >= PUMP_MAX_MS ? 0 : (PUMP_MAX_MS - run) / 1000;
+    const unsigned long left = run >= pumpMaxMs ? 0 : (pumpMaxMs - run) / 1000;
     snprintf(l2, sizeof l2, "%s BOM:ON %3lus", mode, left);
   } else if (isnan(s.temp)) {
     snprintf(l2, sizeof l2, "%s BOM:OFF --C", mode);
@@ -323,6 +411,15 @@ void setup() {
   }
 
   Serial.begin(115200);
+
+  // Khoi tao NVS Preferences va load nguong da luu
+  prefs.begin("garden", false);
+  soilDry = prefs.getInt("soilDry", 35);
+  soilWet = prefs.getInt("soilWet", 60);
+  rainThreshold = prefs.getInt("rainOn", 50);
+  pumpMaxMs = prefs.getULong("pumpMax", SIM ? 20000 : 60000);
+  pumpRestMs = prefs.getULong("pumpRest", SIM ? 10000 : 120000);
+
   Wire.begin(21, 22);
   lcd.init();
   lcd.backlight();
@@ -335,6 +432,8 @@ void setup() {
   autoMode = lastSwitch == HIGH;
   readSensors();
   Serial.printf("\r\n[INFO] He thong san sang | %s\r\n", SIM ? "WOKWI" : "PHAN CUNG");
+  Serial.printf("[INFO] Nguong hoat dong: Dat kho <%d%%, Du am >=%d%%, Mua >=%d%%, Max bom %lus, Nghi %lus\r\n",
+                soilDry, soilWet, rainThreshold, pumpMaxMs / 1000, pumpRestMs / 1000);
   report();
 }
 

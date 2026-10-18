@@ -22,3 +22,4 @@ include/secrets.h
 !include/secrets.h.example
 
 data/
+.firebase/

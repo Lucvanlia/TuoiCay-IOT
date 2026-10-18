@@ -50,3 +50,14 @@ export interface ThresholdConfig {
   maxPumpSeconds: number; // default 20s in sim, 60s in real
   restCooldownSeconds: number; // default 10s in sim, 120s in real
 }
+
+export type UserRole = 'ADMIN' | 'OPERATOR' | 'VIEWER';
+
+export interface UserPermissionItem {
+  id: string;
+  email: string;
+  displayName?: string;
+  role: UserRole;
+  addedAt?: string;
+  addedBy?: string;
+}

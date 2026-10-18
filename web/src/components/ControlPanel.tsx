@@ -10,22 +10,28 @@ import {
   Bot,
   Hand
 } from 'lucide-react';
-import { TelemetryData, SystemMode } from '../types';
+import { TelemetryData, SystemMode, UserRole } from '../types';
+import { Lock } from 'lucide-react';
 
 interface ControlPanelProps {
   telemetry: TelemetryData;
+  userRole?: UserRole;
   onSetMode: (mode: SystemMode) => void;
   onTogglePump: (turnOn: boolean) => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
   telemetry,
+  userRole = 'VIEWER',
   onSetMode,
   onTogglePump
 }) => {
+  const isViewer = userRole === 'VIEWER';
+
   // Check whether manual pump button is allowed:
-  // Cannot turn on if mode is AUTO, or if soil >= 60%, or if raining, or if tank empty
+  // Cannot turn on if mode is AUTO, or if soil >= 60%, or if raining, or if tank empty, or if user is VIEWER
   const canTurnOn =
+    !isViewer &&
     telemetry.mode === 'MANUAL' &&
     !telemetry.pumpOn &&
     !telemetry.isRaining &&
@@ -34,6 +40,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     !telemetry.isStopped;
 
   const getDisabledReason = () => {
+    if (isViewer) return '🔐 Quyền VIEWER (Chỉ xem) không được bật bơm. Vui lòng liên hệ Admin để cấp quyền.';
     if (telemetry.isStopped) return 'Hệ thống đang khóa khẩn cấp (STOP LATCH)';
     if (telemetry.mode === 'AUTO') return 'Đang ở chế độ AUTO (Chuyển sang MANUAL để bật tay)';
     if (telemetry.isRaining) return 'Từ chối: Cảm biến phát hiện trời mưa';
@@ -72,7 +79,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
               border: '1px solid rgba(82, 183, 136, 0.2)'
             }}>
               <button
-                onClick={() => onSetMode('AUTO')}
+                onClick={isViewer ? undefined : () => onSetMode('AUTO')}
+                disabled={isViewer}
+                title={isViewer ? 'Yêu cầu quyền Operator hoặc Admin để đổi chế độ' : undefined}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -84,7 +93,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   color: telemetry.mode === 'AUTO' ? '#74c69d' : '#5e7a6a',
                   fontSize: '12px',
                   fontWeight: 700,
-                  cursor: 'pointer',
+                  cursor: isViewer ? 'not-allowed' : 'pointer',
+                  opacity: isViewer && telemetry.mode !== 'AUTO' ? 0.4 : 1,
                   transition: 'all 0.15s ease'
                 }}
               >
@@ -92,7 +102,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <span>AUTO</span>
               </button>
               <button
-                onClick={() => onSetMode('MANUAL')}
+                onClick={isViewer ? undefined : () => onSetMode('MANUAL')}
+                disabled={isViewer}
+                title={isViewer ? 'Yêu cầu quyền Operator hoặc Admin để đổi chế độ' : undefined}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -104,7 +116,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                   color: telemetry.mode === 'MANUAL' ? '#74c69d' : '#5e7a6a',
                   fontSize: '12px',
                   fontWeight: 700,
-                  cursor: 'pointer',
+                  cursor: isViewer ? 'not-allowed' : 'pointer',
+                  opacity: isViewer && telemetry.mode !== 'MANUAL' ? 0.4 : 1,
                   transition: 'all 0.15s ease'
                 }}
               >
@@ -160,13 +173,14 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 transition: 'all 0.15s ease'
               }}
             >
-              <PlayCircle size={18} />
-              <span>BẬT BƠM TAY</span>
+              {isViewer ? <Lock size={18} /> : <PlayCircle size={18} />}
+              <span>{isViewer ? 'BỊ KHÓA (VIEWER)' : 'BẬT BƠM TAY'}</span>
             </button>
 
             <button
-              onClick={() => onTogglePump(false)}
-              disabled={!telemetry.pumpOn}
+              onClick={isViewer ? undefined : () => onTogglePump(false)}
+              disabled={!telemetry.pumpOn || isViewer}
+              title={isViewer ? 'Yêu cầu quyền Operator hoặc Admin để tắt bơm' : undefined}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -175,12 +189,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 padding: '14px',
                 borderRadius: '10px',
                 border: 'none',
-                backgroundColor: telemetry.pumpOn ? '#ef4444' : 'rgba(239, 68, 68, 0.15)',
-                color: telemetry.pumpOn ? '#fff' : '#5e7a6a',
+                backgroundColor: telemetry.pumpOn && !isViewer ? '#ef4444' : 'rgba(239, 68, 68, 0.15)',
+                color: telemetry.pumpOn && !isViewer ? '#fff' : '#5e7a6a',
                 fontSize: '13px',
                 fontWeight: 800,
-                cursor: telemetry.pumpOn ? 'pointer' : 'not-allowed',
-                boxShadow: telemetry.pumpOn ? '0 4px 16px rgba(239, 68, 68, 0.3)' : 'none',
+                cursor: telemetry.pumpOn && !isViewer ? 'pointer' : 'not-allowed',
+                boxShadow: telemetry.pumpOn && !isViewer ? '0 4px 16px rgba(239, 68, 68, 0.3)' : 'none',
                 transition: 'all 0.15s ease'
               }}
             >

@@ -8,10 +8,12 @@ import {
   LogIn,
   LogOut,
   User as UserIcon,
-  Cloud
+  Cloud,
+  Menu,
+  Lock
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import { TelemetryData } from '../types';
+import type { TelemetryData, UserRole } from '../types';
 
 interface HeaderProps {
   telemetry: TelemetryData;
@@ -22,6 +24,8 @@ interface HeaderProps {
   bridgeConnected: boolean;
   cloudConnected?: boolean;
   user?: User | null;
+  userRole?: UserRole;
+  onToggleMobileMenu?: () => void;
   onLogin?: () => void;
   onLogout?: () => void;
 }
@@ -33,6 +37,8 @@ export const Header: React.FC<HeaderProps> = ({
   bridgeConnected,
   cloudConnected = false,
   user,
+  userRole = 'VIEWER',
+  onToggleMobileMenu,
   onLogin,
   onLogout
 }) => {
@@ -50,8 +56,26 @@ export const Header: React.FC<HeaderProps> = ({
       top: 0,
       zIndex: 30
     }}>
-      {/* Station Name & Path */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+      {/* Station Name & Path with Mobile Hamburger */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+        <button
+          onClick={onToggleMobileMenu}
+          className="mobile-hamburger-btn"
+          title="Mở menu điều hướng"
+          style={{
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '8px',
+            borderRadius: '8px',
+            border: '1px solid rgba(82, 183, 136, 0.25)',
+            backgroundColor: '#0d221a',
+            color: '#74c69d',
+            cursor: 'pointer'
+          }}
+        >
+          <Menu size={20} />
+        </button>
+
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <h1 style={{
@@ -115,7 +139,7 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
         </div>
 
-        {/* User Account / Google Auth */}
+        {/* User Account / Google Auth & Role Badge */}
         {user ? (
           <div style={{
             display: 'flex',
@@ -135,8 +159,19 @@ export const Header: React.FC<HeaderProps> = ({
             ) : (
               <UserIcon size={16} color="#74c69d" />
             )}
-            <span style={{ fontSize: '12px', color: '#eef5f0', fontWeight: 600, maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: '12px', color: '#eef5f0', fontWeight: 600, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {user.displayName?.split(' ')[0] || user.email?.split('@')[0]}
+            </span>
+            <span style={{
+              fontSize: '10px',
+              fontWeight: 700,
+              padding: '1px 6px',
+              borderRadius: '4px',
+              backgroundColor: userRole === 'ADMIN' ? 'rgba(239, 68, 68, 0.2)' : userRole === 'OPERATOR' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(56, 189, 248, 0.2)',
+              color: userRole === 'ADMIN' ? '#f87171' : userRole === 'OPERATOR' ? '#fbbf24' : '#38bdf8',
+              fontFamily: 'var(--font-mono)'
+            }}>
+              {userRole}
             </span>
             <button
               onClick={onLogout}
@@ -182,7 +217,9 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Emergency Stop Button */}
         {telemetry.isStopped ? (
           <button
-            onClick={onResume}
+            onClick={userRole === 'VIEWER' ? undefined : onResume}
+            disabled={userRole === 'VIEWER'}
+            title={userRole === 'VIEWER' ? 'Yêu cầu quyền Operator hoặc Admin để gỡ khóa' : undefined}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -190,20 +227,22 @@ export const Header: React.FC<HeaderProps> = ({
               padding: '8px 16px',
               borderRadius: '8px',
               border: 'none',
-              backgroundColor: '#52b788',
-              color: '#012d1d',
+              backgroundColor: userRole === 'VIEWER' ? 'rgba(255,255,255,0.08)' : '#52b788',
+              color: userRole === 'VIEWER' ? '#6b8a7b' : '#012d1d',
               fontSize: '13px',
               fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: '0 0 15px rgba(82, 183, 136, 0.4)'
+              cursor: userRole === 'VIEWER' ? 'not-allowed' : 'pointer',
+              boxShadow: userRole === 'VIEWER' ? 'none' : '0 0 15px rgba(82, 183, 136, 0.4)'
             }}
           >
-            <Play size={16} />
+            {userRole === 'VIEWER' ? <Lock size={15} /> : <Play size={16} />}
             <span>RESUME (GỠ KHÓA)</span>
           </button>
         ) : (
           <button
-            onClick={onEmergencyStop}
+            onClick={userRole === 'VIEWER' ? undefined : onEmergencyStop}
+            disabled={userRole === 'VIEWER'}
+            title={userRole === 'VIEWER' ? 'Yêu cầu quyền Operator hoặc Admin để dừng khẩn cấp' : undefined}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -211,16 +250,16 @@ export const Header: React.FC<HeaderProps> = ({
               padding: '8px 16px',
               borderRadius: '8px',
               border: 'none',
-              backgroundColor: '#ef4444',
-              color: '#fff',
+              backgroundColor: userRole === 'VIEWER' ? 'rgba(255,255,255,0.08)' : '#ef4444',
+              color: userRole === 'VIEWER' ? '#6b8a7b' : '#fff',
               fontSize: '13px',
               fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: '0 0 15px rgba(239, 68, 68, 0.35)',
+              cursor: userRole === 'VIEWER' ? 'not-allowed' : 'pointer',
+              boxShadow: userRole === 'VIEWER' ? 'none' : '0 0 15px rgba(239, 68, 68, 0.35)',
               transition: 'transform 0.1s ease'
             }}
           >
-            <OctagonAlert size={16} />
+            {userRole === 'VIEWER' ? <Lock size={15} /> : <OctagonAlert size={16} />}
             <span>KHẨN CẤP (STOP)</span>
           </button>
         )}

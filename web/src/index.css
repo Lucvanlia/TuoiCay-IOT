@@ -102,3 +102,48 @@ body {
 .animate-spin-slow {
   animation: spin-slow 3s linear infinite;
 }
+
+/* ============================================================================
+   RESPONSIVE DESIGN SYSTEM (MOBILE DRAWER & COLLAPSE)
+   ============================================================================ */
+
+/* Tablet & Mobile Breakpoint (< 768px) */
+@media (max-width: 768px) {
+  .app-sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    height: 100vh !important;
+    z-index: 100 !important;
+    transform: translateX(-100%);
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.8) !important;
+  }
+
+  .app-sidebar.mobile-open {
+    transform: translateX(0) !important;
+  }
+
+  .mobile-close-btn {
+    display: block !important;
+  }
+
+  .mobile-hamburger-btn {
+    display: flex !important;
+  }
+
+  header {
+    padding: 0 16px !important;
+  }
+
+  main {
+    padding: 16px !important;
+  }
+}
+
+/* Hide mobile hamburger on desktop */
+@media (min-width: 769px) {
+  .mobile-hamburger-btn {
+    display: none !important;
+  }
+}
