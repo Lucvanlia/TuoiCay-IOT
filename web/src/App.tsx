@@ -9,6 +9,15 @@ import { AlertsList } from './components/AlertsList';
 import { DeviceSettings } from './components/DeviceSettings';
 import { AzureIntegration } from './components/AzureIntegration';
 import { WifiOff } from 'lucide-react';
+import type { User } from 'firebase/auth';
+import {
+  listenTelemetry,
+  sendControl,
+  listenDeviceStatus,
+  loginWithGoogle,
+  logoutFirebase,
+  onAuthChanged
+} from './firebase';
 import {
   TelemetryData,
   SystemMode,
@@ -22,6 +31,8 @@ export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [simMode, setSimMode] = useState<boolean>(false);
   const [bridgeConnected, setBridgeConnected] = useState<boolean>(false);
+  const [cloudConnected, setCloudConnected] = useState<boolean>(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   // Configuration
@@ -177,6 +188,49 @@ export const App: React.FC = () => {
     };
   }, [simMode]);
 
+  // Firebase Auth state listener
+  useEffect(() => {
+    const unsub = onAuthChanged((u) => {
+      setCurrentUser(u);
+    });
+    return () => unsub();
+  }, []);
+
+  // Firebase Realtime Database Listener (Cloud IoT connection)
+  useEffect(() => {
+    const unsubTelemetry = listenTelemetry(
+      (data) => {
+        if (!data) return;
+        setCloudConnected(true);
+        setTelemetry((prev) => ({
+          ...prev,
+          soilMoisture: typeof data.soil === 'number' ? data.soil : prev.soilMoisture,
+          rainPercentage: typeof data.rain === 'number' ? data.rain : prev.rainPercentage,
+          isRaining: typeof data.raining === 'boolean' ? data.raining : prev.isRaining,
+          temperature: typeof data.temp === 'number' ? data.temp : prev.temperature,
+          humidity: typeof data.hum === 'number' ? data.hum : prev.humidity,
+          pumpOn: typeof data.pump === 'boolean' ? data.pump : prev.pumpOn,
+          mode: data.mode === 'MANUAL' ? 'MANUAL' : 'AUTO',
+          tankOk: typeof data.tankOk === 'boolean' ? data.tankOk : prev.tankOk,
+          rssi: typeof data.rssi === 'number' ? data.rssi : prev.rssi,
+          lastUpdated: new Date()
+        }));
+      },
+      (err) => {
+        console.warn('[FIREBASE] Realtime Database error:', err.message);
+      }
+    );
+
+    const unsubStatus = listenDeviceStatus((online) => {
+      setCloudConnected(online);
+    });
+
+    return () => {
+      unsubTelemetry();
+      unsubStatus();
+    };
+  }, []);
+
   // Simulation Clock Tick (runs every 1 second)
   useEffect(() => {
     if (!simMode) return;
@@ -315,6 +369,7 @@ export const App: React.FC = () => {
     if (!simMode && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(mode === 'AUTO' ? 'a' : 'm');
     }
+    sendControl({ mode }).catch(() => {});
     setTelemetry((prev) => {
       // Switching mode turns off pump for safety
       if (prev.pumpOn) {
@@ -346,6 +401,7 @@ export const App: React.FC = () => {
     if (!simMode && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send('p');
     }
+    sendControl({ pump: turnOn }).catch(() => {});
     if (turnOn) {
       soilAtStartRef.current = telemetry.soilMoisture;
       pumpStartReasonRef.current = 'Bật tay qua Web';
@@ -378,6 +434,10 @@ export const App: React.FC = () => {
 
   // Emergency Stop & Resume
   const handleEmergencyStop = () => {
+    if (!simMode && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send('s');
+    }
+    sendControl({ emergencyStop: true, pump: false }).catch(() => {});
     setTelemetry((prev) => ({
       ...prev,
       pumpOn: false,
@@ -398,6 +458,10 @@ export const App: React.FC = () => {
   };
 
   const handleResume = () => {
+    if (!simMode && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send('a');
+    }
+    sendControl({ emergencyStop: false }).catch(() => {});
     setTelemetry((prev) => ({
       ...prev,
       isStopped: false
@@ -412,7 +476,7 @@ export const App: React.FC = () => {
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        isOnline={simMode || bridgeConnected}
+        isOnline={simMode || bridgeConnected || cloudConnected}
         alertCount={unreadAlerts}
       />
 
@@ -426,14 +490,18 @@ export const App: React.FC = () => {
           simMode={simMode}
           setSimMode={setSimMode}
           bridgeConnected={bridgeConnected}
+          cloudConnected={cloudConnected}
+          user={currentUser}
+          onLogin={loginWithGoogle}
+          onLogout={logoutFirebase}
         />
 
         {/* Main Body per tab */}
         <main style={{ padding: '28px', flex: 1 }}>
           {activeTab === 'overview' && (
             <>
-              {/* Cảnh báo khi ESP32 chưa online */}
-              {!bridgeConnected && (
+              {/* Cảnh báo khi ESP32 chưa online (cả Cloud lẫn Local Bridge) */}
+              {!bridgeConnected && !cloudConnected && (
                 <div style={{
                   padding: '16px 20px',
                   marginBottom: '20px',
@@ -460,10 +528,10 @@ export const App: React.FC = () => {
                     </div>
                     <div>
                       <h4 style={{ fontSize: '14px', fontWeight: 700, color: '#f87171', margin: 0 }}>
-                        Đang chờ tín hiệu từ bo mạch ESP32 thật
+                        Đang chờ tín hiệu từ bo mạch ESP32
                       </h4>
                       <p style={{ fontSize: '12px', color: '#fca5a5', margin: '4px 0 0 0' }}>
-                        Cắm cáp USB bo mạch ESP32 vào máy tính hoặc chạy cầu nối (<code>node scripts/wokwi-bridge.cjs</code>).
+                        ESP32 có thể gửi trực tiếp lên <b>Firebase Cloud</b> qua Wi-Fi hoặc qua cổng USB (<code>npm run bridge</code>).
                       </p>
                     </div>
                   </div>
@@ -476,7 +544,7 @@ export const App: React.FC = () => {
                     borderRadius: '6px',
                     border: '1px solid rgba(82, 183, 136, 0.15)'
                   }}>
-                    Cổng: ws://localhost:8080 • Đang tự động quét kết nối...
+                    Firebase: iot-garden-2cb4e • Đang lắng nghe Realtime...
                   </div>
                 </div>
               )}

@@ -13,7 +13,8 @@
     "lucide-react": "^1.58.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "firebase": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

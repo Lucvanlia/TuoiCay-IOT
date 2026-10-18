@@ -1,0 +1,8 @@
+{
+  "rules": {
+    "garden": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}
