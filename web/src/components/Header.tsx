@@ -72,49 +72,6 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Quick Actions & Live Badges */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-        {/* Toggle Mode: Demo Simulation vs Real Device */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          backgroundColor: '#07120e',
-          borderRadius: '8px',
-          padding: '3px',
-          border: '1px solid rgba(82, 183, 136, 0.15)'
-        }}>
-          <button
-            onClick={() => setSimMode(true)}
-            style={{
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: simMode ? '#1b4332' : 'transparent',
-              color: simMode ? '#74c69d' : '#5e7a6a',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            Mô phỏng Demo
-          </button>
-          <button
-            onClick={() => setSimMode(false)}
-            style={{
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: 'none',
-              backgroundColor: !simMode ? '#1b4332' : 'transparent',
-              color: !simMode ? '#74c69d' : '#5e7a6a',
-              fontSize: '12px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            Kết nối ESP32 Live
-          </button>
-        </div>
-
         {/* Connection status badge */}
         <div style={{
           display: 'flex',
@@ -122,19 +79,11 @@ export const Header: React.FC<HeaderProps> = ({
           gap: '8px',
           padding: '6px 14px',
           borderRadius: '9999px',
-          backgroundColor: simMode
-            ? 'rgba(82, 183, 136, 0.12)'
-            : bridgeConnected
-              ? 'rgba(82, 183, 136, 0.18)'
-              : 'rgba(239, 68, 68, 0.15)',
-          border: `1px solid ${
-            simMode
-              ? 'rgba(82, 183, 136, 0.25)'
-              : bridgeConnected
-                ? '#52b788'
-                : '#ef4444'
-          }`,
-          color: simMode ? '#74c69d' : bridgeConnected ? '#52b788' : '#f87171',
+          backgroundColor: bridgeConnected
+            ? 'rgba(82, 183, 136, 0.18)'
+            : 'rgba(239, 68, 68, 0.15)',
+          border: `1px solid ${bridgeConnected ? '#52b788' : '#ef4444'}`,
+          color: bridgeConnected ? '#52b788' : '#f87171',
           fontSize: '12px',
           fontWeight: 600,
           fontFamily: 'var(--font-mono)'
@@ -143,15 +92,13 @@ export const Header: React.FC<HeaderProps> = ({
             width: '8px',
             height: '8px',
             borderRadius: '50%',
-            backgroundColor: simMode ? '#74c69d' : bridgeConnected ? '#52b788' : '#ef4444',
-            boxShadow: `0 0 10px ${simMode ? '#74c69d' : bridgeConnected ? '#52b788' : '#ef4444'}`
+            backgroundColor: bridgeConnected ? '#52b788' : '#ef4444',
+            boxShadow: `0 0 10px ${bridgeConnected ? '#52b788' : '#ef4444'}`
           }} />
           <span>
-            {simMode
-              ? 'MÔ PHỎNG (DEMO)'
-              : bridgeConnected
-                ? 'ESP32: ONLINE (LIVE)'
-                : 'ESP32: OFFLINE (ĐÃ TẮT)'}
+            {bridgeConnected
+              ? 'ESP32: ONLINE (LIVE)'
+              : 'ESP32: OFFLINE (CHƯA KẾT NỐI)'}
           </span>
         </div>
 

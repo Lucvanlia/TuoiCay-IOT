@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import { SimulatorBar } from './components/SimulatorBar';
 import { KpiCards } from './components/KpiCards';
 import { ControlPanel } from './components/ControlPanel';
 import { TelemetryChart } from './components/TelemetryChart';
@@ -9,6 +8,7 @@ import { LogTable } from './components/LogTable';
 import { AlertsList } from './components/AlertsList';
 import { DeviceSettings } from './components/DeviceSettings';
 import { AzureIntegration } from './components/AzureIntegration';
+import { WifiOff } from 'lucide-react';
 import {
   TelemetryData,
   SystemMode,
@@ -20,7 +20,7 @@ import {
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('overview');
-  const [simMode, setSimMode] = useState<boolean>(true);
+  const [simMode, setSimMode] = useState<boolean>(false);
   const [bridgeConnected, setBridgeConnected] = useState<boolean>(false);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -428,18 +428,59 @@ export const App: React.FC = () => {
           bridgeConnected={bridgeConnected}
         />
 
-        {/* Live Simulator Controls (When in demo mode) */}
-        {simMode && (
-          <SimulatorBar
-            telemetry={telemetry}
-            onChangeTelemetry={(partial) => setTelemetry((prev) => ({ ...prev, ...partial }))}
-          />
-        )}
-
         {/* Main Body per tab */}
         <main style={{ padding: '28px', flex: 1 }}>
           {activeTab === 'overview' && (
             <>
+              {/* Cảnh báo khi ESP32 chưa online */}
+              {!bridgeConnected && (
+                <div style={{
+                  padding: '16px 20px',
+                  marginBottom: '20px',
+                  backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  borderRadius: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '16px',
+                  flexWrap: 'wrap'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{
+                      padding: '10px',
+                      borderRadius: '10px',
+                      backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                      color: '#f87171',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <WifiOff size={22} />
+                    </div>
+                    <div>
+                      <h4 style={{ fontSize: '14px', fontWeight: 700, color: '#f87171', margin: 0 }}>
+                        Đang chờ tín hiệu từ bo mạch ESP32 thật
+                      </h4>
+                      <p style={{ fontSize: '12px', color: '#fca5a5', margin: '4px 0 0 0' }}>
+                        Cắm cáp USB bo mạch ESP32 vào máy tính hoặc chạy cầu nối (<code>node scripts/wokwi-bridge.cjs</code>).
+                      </p>
+                    </div>
+                  </div>
+                  <div style={{
+                    fontSize: '11px',
+                    color: '#8fa89b',
+                    fontFamily: 'var(--font-mono)',
+                    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(82, 183, 136, 0.15)'
+                  }}>
+                    Cổng: ws://localhost:8080 • Đang tự động quét kết nối...
+                  </div>
+                </div>
+              )}
+
               {/* 5 Realtime KPI Metric Cards */}
               <KpiCards telemetry={telemetry} />
 
