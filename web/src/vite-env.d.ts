@@ -13,6 +13,9 @@ declare module 'firebase/database' {
   export function off(ref: any): void;
   export function set(ref: any, value: any): Promise<void>;
   export function update(ref: any, value: any): Promise<void>;
+  export function push(ref: any, value?: any): any;
+  export function query(ref: any, ...queryConstraints: any[]): any;
+  export function limitToLast(limit: number): any;
 }
 
 declare module 'firebase/auth' {

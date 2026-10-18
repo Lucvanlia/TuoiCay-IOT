@@ -2,7 +2,74 @@
   "rules": {
     "garden": {
       ".read": true,
-      ".write": true
+      ".write": true,
+
+      "telemetry": {
+        ".validate": "newData.hasChildren(['soil', 'pump', 'mode'])",
+        "soil": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+        },
+        "rain": {
+          ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 100)"
+        },
+        "raining": {
+          ".validate": "!newData.exists() || newData.isBoolean()"
+        },
+        "temp": {
+          ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= -20 && newData.val() <= 80)"
+        },
+        "hum": {
+          ".validate": "!newData.exists() || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 100)"
+        },
+        "pump": {
+          ".validate": "newData.isBoolean()"
+        },
+        "mode": {
+          ".validate": "newData.val() === 'AUTO' || newData.val() === 'MANUAL'"
+        },
+        "tankOk": {
+          ".validate": "!newData.exists() || newData.isBoolean()"
+        },
+        "rssi": {
+          ".validate": "!newData.exists() || newData.isNumber()"
+        },
+        "updatedAt": {
+          ".validate": "!newData.exists() || newData.isNumber()"
+        }
+      },
+
+      "control": {
+        ".validate": "newData.hasChildren()",
+        "mode": {
+          ".validate": "!newData.exists() || newData.val() === 'AUTO' || newData.val() === 'MANUAL'"
+        },
+        "pump": {
+          ".validate": "!newData.exists() || newData.isBoolean()"
+        },
+        "emergencyStop": {
+          ".validate": "!newData.exists() || newData.isBoolean()"
+        },
+        "updatedAt": {
+          ".validate": "!newData.exists() || newData.isNumber()"
+        }
+      },
+
+      "status": {
+        "online": {
+          ".validate": "!newData.exists() || newData.isBoolean()"
+        },
+        "lastHeartbeat": {
+          ".validate": "!newData.exists() || newData.isNumber()"
+        }
+      },
+
+      "irrigationLog": {
+        ".indexOn": ["timestamp", "start"]
+      },
+
+      "history": {
+        ".indexOn": ["ts", "updatedAt"]
+      }
     }
   }
 }

@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getDatabase, ref, onValue, set, update, off } from 'firebase/database';
+import { getDatabase, ref, onValue, set, update, off, push, query, limitToLast } from 'firebase/database';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 
 // Cấu hình Firebase đọc từ file môi trường .env.local (Bảo mật, không bị commit lên Git)
@@ -84,6 +84,41 @@ export function listenDeviceStatus(onStatus: (online: boolean, lastHeartbeat?: n
   });
 
   return () => off(statusRef);
+}
+
+// 4. Ghi nhận nhật ký tưới nước (Irrigation Log) - Lưu trữ bền vững trên Cloud
+export async function recordIrrigationLog(log: {
+  mode: 'AUTO' | 'MANUAL';
+  durationSeconds: number;
+  soilBefore: number;
+  soilAfter: number;
+  startReason: string;
+  stopReason: string;
+}) {
+  const logRef = ref(rtdb, 'garden/irrigationLog');
+  const now = Date.now();
+  await push(logRef, {
+    ...log,
+    timestamp: new Date().toLocaleTimeString('vi-VN'),
+    ts: now
+  });
+}
+
+// 5. Lắng nghe danh sách nhật ký tưới nước (giới hạn 15 bản ghi gần nhất theo tối ưu firebase.md)
+export function listenIrrigationLogs(onLogs: (logs: any[]) => void) {
+  const logQuery = query(ref(rtdb, 'garden/irrigationLog'), limitToLast(15));
+  onValue(logQuery, (snapshot: any) => {
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      const list = Object.keys(data).map((key) => ({
+        id: key,
+        ...data[key]
+      })).reverse();
+      onLogs(list);
+    }
+  });
+
+  return () => off(logQuery);
 }
 
 // ============================================================================
