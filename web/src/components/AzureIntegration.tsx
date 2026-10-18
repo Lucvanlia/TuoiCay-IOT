@@ -2,14 +2,36 @@ import React, { useState } from 'react';
 import { Cloud, Key, Server, Copy, Check, ExternalLink, ShieldAlert } from 'lucide-react';
 
 export const AzureIntegration: React.FC = () => {
-  const [hubName, setHubName] = useState('iothub-tuoicay-hkp');
-  const [deviceId, setDeviceId] = useState('esp32-garden-01');
-  const [primaryKey, setPrimaryKey] = useState('Kq5mUcVC9EzWsOvwuOotAL3ZWuk/1gtcctlgE9+tv5U=');
+  const envHubName = import.meta.env.VITE_AZURE_IOTHUB_NAME || '';
+  const envDeviceId = import.meta.env.VITE_AZURE_DEVICE_ID || '';
+  const envPrimaryKey = import.meta.env.VITE_AZURE_PRIMARY_KEY || '';
+
+  const [hubName, setHubName] = useState(() => localStorage.getItem('azure_hub_name') || envHubName || 'iothub-tuoicay-hkp');
+  const [deviceId, setDeviceId] = useState(() => localStorage.getItem('azure_device_id') || envDeviceId || 'esp32-garden-01');
+  const [primaryKey, setPrimaryKey] = useState(() => localStorage.getItem('azure_primary_key') || envPrimaryKey || '');
   const [copied, setCopied] = useState(false);
 
-  const connectionString = `HostName=${hubName}.azure-devices.net;DeviceId=${deviceId};SharedAccessKey=${primaryKey}`;
+  const handleHubNameChange = (val: string) => {
+    setHubName(val);
+    localStorage.setItem('azure_hub_name', val);
+  };
+
+  const handleDeviceIdChange = (val: string) => {
+    setDeviceId(val);
+    localStorage.setItem('azure_device_id', val);
+  };
+
+  const handlePrimaryKeyChange = (val: string) => {
+    setPrimaryKey(val);
+    localStorage.setItem('azure_primary_key', val);
+  };
+
+  const connectionString = primaryKey 
+    ? `HostName=${hubName}.azure-devices.net;DeviceId=${deviceId};SharedAccessKey=${primaryKey}`
+    : `HostName=${hubName}.azure-devices.net;DeviceId=${deviceId};SharedAccessKey=<CHUA_NHAP_KEY>`;
 
   const copyToClipboard = () => {
+    if (!primaryKey) return;
     navigator.clipboard.writeText(connectionString);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -41,7 +63,8 @@ export const AzureIntegration: React.FC = () => {
             <input
               type="text"
               value={hubName}
-              onChange={(e) => setHubName(e.target.value)}
+              onChange={(e) => handleHubNameChange(e.target.value)}
+              placeholder="Nhập tên IoT Hub..."
               style={{
                 width: '100%',
                 padding: '10px',
@@ -62,7 +85,8 @@ export const AzureIntegration: React.FC = () => {
             <input
               type="text"
               value={deviceId}
-              onChange={(e) => setDeviceId(e.target.value)}
+              onChange={(e) => handleDeviceIdChange(e.target.value)}
+              placeholder="Nhập Device ID..."
               style={{
                 width: '100%',
                 padding: '10px',
@@ -77,13 +101,15 @@ export const AzureIntegration: React.FC = () => {
           </div>
 
           <div>
-            <label style={{ fontSize: '12px', color: '#8fa89b', display: 'block', marginBottom: '6px' }}>
-              Device Primary Key:
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <label style={{ fontSize: '12px', color: '#8fa89b' }}>Device Primary Key:</label>
+              <span style={{ fontSize: '11px', color: '#52b788' }}>🔒 Lưu cục bộ (.env.local / localStorage)</span>
+            </div>
             <input
               type="password"
               value={primaryKey}
-              onChange={(e) => setPrimaryKey(e.target.value)}
+              onChange={(e) => handlePrimaryKeyChange(e.target.value)}
+              placeholder="Nhập Primary Key..."
               style={{
                 width: '100%',
                 padding: '10px',

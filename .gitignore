@@ -9,8 +9,16 @@ node_modules/
 web/node_modules/
 dist/
 web/dist/
+
+# Environment and secret files
 .env
 .env.*
+*.local
 !.env.example
+!web/.env.example
+
+# Hardware & C++ secrets
 include/secrets.h
+!include/secrets.h.example
+
 data/
