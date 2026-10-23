@@ -13,10 +13,10 @@ import {
   Sparkles
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import type { UserRole, UserPermissionItem } from '../types';
+import type { UserRole, UserPermissionItem, AppUser } from '../types';
 
 interface UserRoleManagementProps {
-  currentUser: User | null;
+  currentUser: AppUser | User | null;
   currentUserRole: UserRole;
   rolesList: UserPermissionItem[];
   onSetRole: (email: string, role: UserRole, displayName?: string) => Promise<void>;

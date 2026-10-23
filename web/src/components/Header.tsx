@@ -13,7 +13,7 @@ import {
   Lock
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import type { TelemetryData, UserRole } from '../types';
+import type { TelemetryData, UserRole, AppUser } from '../types';
 
 interface HeaderProps {
   telemetry: TelemetryData;
@@ -23,7 +23,7 @@ interface HeaderProps {
   setSimMode: (val: boolean) => void;
   bridgeConnected: boolean;
   cloudConnected?: boolean;
-  user?: User | null;
+  user?: AppUser | User | null;
   userRole?: UserRole;
   onToggleMobileMenu?: () => void;
   onLogin?: () => void;

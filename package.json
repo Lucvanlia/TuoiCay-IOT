@@ -1,0 +1,11 @@
+{
+  "name": "tuoicay-iot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "He thong tuoi cay thong minh IOT",
+  "scripts": {
+    "bridge": "node scripts/wokwi-bridge.cjs",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build"
+  }
+}

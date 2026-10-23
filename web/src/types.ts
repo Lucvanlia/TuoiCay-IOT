@@ -53,6 +53,14 @@ export interface ThresholdConfig {
 
 export type UserRole = 'ADMIN' | 'OPERATOR' | 'VIEWER';
 
+export interface AppUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL?: string | null;
+  role: UserRole;
+}
+
 export interface UserPermissionItem {
   id: string;
   email: string;

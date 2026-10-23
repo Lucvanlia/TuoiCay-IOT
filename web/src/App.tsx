@@ -8,6 +8,7 @@ import { LogTable } from './components/LogTable';
 import { AlertsList } from './components/AlertsList';
 import { DeviceSettings } from './components/DeviceSettings';
 import { UserRoleManagement } from './components/UserRoleManagement';
+import { LoginModal } from './components/LoginModal';
 import { WifiOff } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import {
@@ -35,7 +36,8 @@ import {
   ChartPoint,
   ThresholdConfig,
   UserRole,
-  UserPermissionItem
+  UserPermissionItem,
+  AppUser
 } from './types';
 
 export const App: React.FC = () => {
@@ -43,7 +45,8 @@ export const App: React.FC = () => {
   const [simMode, setSimMode] = useState<boolean>(false);
   const [bridgeConnected, setBridgeConnected] = useState<boolean>(false);
   const [cloudConnected, setCloudConnected] = useState<boolean>(false);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<AppUser | User | null>(null);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
   const [mobileOpen, setMobileOpen] = useState<boolean>(false);
   const [rolesList, setRolesList] = useState<UserPermissionItem[]>([]);
@@ -117,8 +120,13 @@ export const App: React.FC = () => {
   const pumpStartReasonRef = useRef<string>('Đất khô');
 
   // Live WebSocket Bridge Connection (ws://localhost:8080)
+  // Chi ket noi khi dang chay tren moi truong dev cuc bo (localhost)
+  // tranh viec Chrome hien popup Private Network Access khi nguoi dung vao trang web tren Cloud
   useEffect(() => {
-    if (simMode) {
+    const isLocalHost = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    if (simMode || !isLocalHost) {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -205,10 +213,33 @@ export const App: React.FC = () => {
     };
   }, [simMode]);
 
+  // Khoi phuc dang nhap tu localStorage neu co
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('garden_auth_user');
+      if (saved) {
+        const parsed: AppUser = JSON.parse(saved);
+        if (parsed && parsed.role) {
+          setCurrentUser(parsed);
+          setUserRole(parsed.role);
+        }
+      }
+    } catch (e) {
+      console.error('[AUTH] Loi doc tai khoan tu bo nho cuc bo:', e);
+    }
+  }, []);
+
   // Firebase Auth state listener
   useEffect(() => {
     const unsub = onAuthChanged((u) => {
-      setCurrentUser(u);
+      if (u) {
+        setCurrentUser(u);
+      } else {
+        const saved = localStorage.getItem('garden_auth_user');
+        if (!saved) {
+          setCurrentUser(null);
+        }
+      }
     });
     return () => unsub();
   }, []);
@@ -225,6 +256,12 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!currentUser) {
       setUserRole('VIEWER');
+      return;
+    }
+
+    // Neu dang nhap qua AppUser (Manual/Demo) co san role
+    if ('role' in currentUser && (currentUser as AppUser).role) {
+      setUserRole((currentUser as AppUser).role);
       return;
     }
 
@@ -252,6 +289,29 @@ export const App: React.FC = () => {
       }
     }
   }, [currentUser, rolesList]);
+
+  // Xu ly dang nhap Custom (Username/Password 3 Roles)
+  const handleCustomLoginSuccess = (user: AppUser) => {
+    setCurrentUser(user);
+    setUserRole(user.role);
+    try {
+      localStorage.setItem('garden_auth_user', JSON.stringify(user));
+    } catch (e) {
+      console.error('[AUTH] Loi luu tai khoan cuc bo:', e);
+    }
+  };
+
+  // Xu ly dang xuat (xoa ca Firebase lan LocalStorage)
+  const handleLogout = async () => {
+    try {
+      localStorage.removeItem('garden_auth_user');
+      await logoutFirebase();
+    } catch (e) {
+      console.warn('[AUTH] Loi logout:', e);
+    }
+    setCurrentUser(null);
+    setUserRole('VIEWER');
+  };
 
   // Bảo vệ route: Nếu vai trò là VIEWER mà đang ở tab Cấu hình hoặc Phân quyền thì chuyển về Tổng quan
   useEffect(() => {
@@ -584,6 +644,10 @@ export const App: React.FC = () => {
 
   // Mode Change Handlers
   const handleSetMode = (mode: SystemMode) => {
+    if (userRole === 'VIEWER') {
+      alert('🔒 YÊU CẦU ĐĂNG NHẬP:\nBạn đang ở chế độ Xem (Khách / Demo). Vui lòng ĐĂNG NHẬP bằng tài khoản Quản trị để điều khiển chế độ của thiết bị thật.');
+      return;
+    }
     if (mode === telemetry.mode) return;
     if (!simMode && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(mode === 'AUTO' ? 'a' : 'm');
@@ -617,6 +681,10 @@ export const App: React.FC = () => {
 
   // Manual Pump Toggle
   const handleTogglePump = (turnOn: boolean) => {
+    if (userRole === 'VIEWER') {
+      alert('🔒 YÊU CẦU ĐĂNG NHẬP:\nBạn đang ở chế độ Xem (Khách / Demo). Vui lòng ĐĂNG NHẬP bằng tài khoản Quản trị để bật/tắt máy bơm thiết bị thật.');
+      return;
+    }
     if (!simMode && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send('p');
     }
@@ -653,6 +721,10 @@ export const App: React.FC = () => {
 
   // Emergency Stop & Resume
   const handleEmergencyStop = () => {
+    if (userRole === 'VIEWER') {
+      alert('🔒 YÊU CẦU ĐĂNG NHẬP:\nBạn đang ở chế độ Xem (Khách / Demo). Vui lòng ĐĂNG NHẬP bằng tài khoản Quản trị để thực hiện lệnh dừng khẩn cấp.');
+      return;
+    }
     if (!simMode && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send('s');
     }
@@ -677,6 +749,10 @@ export const App: React.FC = () => {
   };
 
   const handleResume = () => {
+    if (userRole === 'VIEWER') {
+      alert('🔒 YÊU CẦU ĐĂNG NHẬP:\nBạn đang ở chế độ Xem (Khách / Demo). Vui lòng ĐĂNG NHẬP bằng tài khoản Quản trị để gỡ khóa hệ thống.');
+      return;
+    }
     if (!simMode && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send('a');
     }
@@ -733,14 +809,58 @@ export const App: React.FC = () => {
           user={currentUser}
           userRole={userRole}
           onToggleMobileMenu={() => setMobileOpen(true)}
-          onLogin={loginWithGoogle}
-          onLogout={logoutFirebase}
+          onLogin={() => setIsLoginModalOpen(true)}
+          onLogout={handleLogout}
         />
 
         {/* Main Body per tab */}
         <main style={{ padding: '28px', flex: 1 }}>
           {activeTab === 'overview' && (
             <>
+              {/* Thong bao che do Khach / Viewer */}
+              {userRole === 'VIEWER' && (
+                <div style={{
+                  padding: '14px 20px',
+                  marginBottom: '20px',
+                  backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                  border: '1px solid rgba(56, 189, 248, 0.25)',
+                  borderRadius: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '14px',
+                  flexWrap: 'wrap'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '20px' }}>👀</span>
+                    <div>
+                      <h4 style={{ fontSize: '14px', fontWeight: 700, color: '#38bdf8', margin: 0 }}>
+                        Chế độ Xem Trực Quan (Demo Wokwi / Khách)
+                      </h4>
+                      <p style={{ fontSize: '12px', color: '#94a3b8', margin: '3px 0 0 0' }}>
+                        Bạn đang xem số liệu thời gian thực. Để điều khiển máy bơm mạch thật và cài đặt ngưỡng, vui lòng <b>Đăng nhập Quản trị</b>.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsLoginModalOpen(true)}
+                    style={{
+                      padding: '7px 16px',
+                      backgroundColor: '#38bdf8',
+                      color: '#071610',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    Đăng nhập Hệ thống (3 Roles / Google)
+                  </button>
+                </div>
+              )}
+
               {/* Cảnh báo khi ESP32 chưa online (cả Cloud lẫn Local Bridge) */}
               {!bridgeConnected && !cloudConnected && (
                 <div style={{
@@ -843,10 +963,20 @@ export const App: React.FC = () => {
               onRemoveRole={async (id) => {
                 await removeFirebaseUserRole(id);
               }}
-              onLogin={loginWithGoogle}
+              onLogin={() => setIsLoginModalOpen(true)}
             />
           )}
         </main>
+
+        {/* Modal Dang Nhap 3 Roles & Google */}
+        <LoginModal
+          isOpen={isLoginModalOpen}
+          onClose={() => setIsLoginModalOpen(false)}
+          onLoginSuccess={handleCustomLoginSuccess}
+          onGoogleLogin={async () => {
+            await loginWithGoogle();
+          }}
+        />
       </div>
     </div>
   );

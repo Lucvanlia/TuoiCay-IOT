@@ -14,6 +14,14 @@
 #include <DHTesp.h>
 #include <string.h>
 #include <Preferences.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include "secrets.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
 
 #ifndef IRRIGATION_SIMULATION
 #define IRRIGATION_SIMULATION 1
@@ -59,12 +67,15 @@ struct {
   bool raining = false;
 } s;
 
-bool autoMode = true, pumpOn = false, everStopped = false;
+bool autoMode = true, pumpOn = false, everStopped = false, isEmergencyStopped = false;
 bool statusDirty = true;
 unsigned long lastReportMs = 0;
 unsigned long pumpStartMs = 0, pumpStopMs = 0;
 int soilAtStart = 0, rainStartSoil = 0, rainNotifySoil = 0, lastSwitch = HIGH;
 const char *startReason = "";
+
+void setPump(bool on, const char *reason);
+void setEmergencyStop(bool stop, const char *source);
 
 // Nhat ky tuoi: vong dem 10 lan gan nhat (RAM). Sau nay day len cloud de luu lich su.
 struct LogEntry {
@@ -76,6 +87,10 @@ struct LogEntry {
 constexpr int LOG_SIZE = 10;
 LogEntry logBuf[LOG_SIZE];
 int logHead = 0, logCount = 0;
+
+// FreeRTOS Handles (Giao tiep an toan giua cac task)
+QueueHandle_t logQueue = NULL;
+SemaphoreHandle_t pumpMutex = NULL;
 
 // ===================== BOM & NHAT KY =====================
 const char *reasonText(const char *code) {
@@ -99,14 +114,45 @@ void setSimPumpPulses(bool on) {
 }
 
 void addLog(unsigned long now, const char *stopWhy) {
-  logBuf[logHead] = {pumpStartMs / 1000, (now - pumpStartMs) / 1000, autoMode,
-                     soilAtStart, s.soil, startReason, stopWhy};
+  LogEntry entry = {pumpStartMs / 1000, (now - pumpStartMs) / 1000, autoMode,
+                    soilAtStart, s.soil, startReason, stopWhy};
+  logBuf[logHead] = entry;
   logHead = (logHead + 1) % LOG_SIZE;
   if (logCount < LOG_SIZE) logCount++;
+
+  // Day vao FreeRTOS Queue de Network Task tren Core 0 xu ly gui len Cloud
+  if (logQueue != NULL) {
+    xQueueSend(logQueue, &entry, 0); // Non-blocking send
+  }
+}
+
+void setEmergencyStop(bool stop, const char *source) {
+  if (stop == isEmergencyStopped) return;
+  isEmergencyStopped = stop;
+  if (stop) {
+    setPump(false, "EMERGENCY_STOP");
+    Serial.printf("[WARN] %s: KHOA DUNG KHAN CAP (STOP)!\r\n", source);
+  } else {
+    Serial.printf("[INFO] %s: GO KHOA KHAN CAP (RESUME).\r\n", source);
+  }
+  statusDirty = true;
 }
 
 void setPump(bool on, const char *reason) {
-  if (on == pumpOn) return;
+  if (on && isEmergencyStopped) {
+    Serial.println("[WARN] Tu choi bat bom: He thong dang bi KHOA KHAN CAP!");
+    return;
+  }
+
+  // Khoa Mutex tranh xung dot khi ca loopTask va safetyTask cung tac dong bom
+  if (pumpMutex && xSemaphoreTake(pumpMutex, pdMS_TO_TICKS(50)) != pdTRUE) {
+    return;
+  }
+
+  if (on == pumpOn) {
+    if (pumpMutex) xSemaphoreGive(pumpMutex);
+    return;
+  }
   const unsigned long now = millis();
   if (!on) setSimPumpPulses(false);  // chan xung truoc khi relay mo
   pumpOn = on;
@@ -121,6 +167,8 @@ void setPump(bool on, const char *reason) {
   Serial.printf("[%s] Bom %s | ly do: %s | dat: %d%%\r\n",
                 (!on && (!strcmp(reason, "RAIN") || !strcmp(reason, "MAX_TIME"))) ? "WARN" : "INFO",
                 on ? "BAT" : "TAT", reasonText(reason), s.soil);
+
+  if (pumpMutex) xSemaphoreGive(pumpMutex);
 }
 
 void printLog() {
@@ -138,7 +186,10 @@ void printLog() {
 
 // ===================== CHE DO & DIEU KHIEN TAY =====================
 void setMode(bool isAuto, const char *source) {
-  if (isAuto == autoMode) return;
+  if (isAuto == autoMode) {
+    Serial.printf("[INFO] Che do hien tai da la %s roi (%s)\r\n", isAuto ? "AUTO" : "MANUAL", source);
+    return;
+  }
   setPump(false, "MODE_CHANGE");
   autoMode = isAuto;
   statusDirty = true;
@@ -146,6 +197,7 @@ void setMode(bool isAuto, const char *source) {
 }
 
 void manualToggle(const char *source) {
+  if (isEmergencyStopped) { Serial.printf("[WARN] %s: Tu choi bat bom: He thong dang bi KHOA KHAN CAP!\r\n", source); return; }
   if (autoMode)   { Serial.printf("[WARN] %s: chuyen MANUAL de bom tay\r\n", source); return; }
   if (pumpOn)     { setPump(false, "MANUAL_OFF"); return; }
   if (s.raining)  { Serial.println("[WARN] Tu choi bat bom: dang mua"); return; }
@@ -171,9 +223,19 @@ void readSensors() {
   if (now - lastDht >= DHT_MS) {  // DHT22 can >= 2s giua 2 lan doc
     lastDht = now;
     TempAndHumidity d = dht.getTempAndHumidity();
-    const bool ok = dht.getStatus() == DHTesp::ERROR_NONE;
-    s.temp = ok ? d.temperature : NAN;
-    s.hum = ok ? d.humidity : NAN;
+    static uint8_t dhtFailures = 0;
+    if (dht.getStatus() == DHTesp::ERROR_NONE) {
+      s.temp = d.temperature;
+      s.hum = d.humidity;
+      dhtFailures = 0;
+    } else {
+      // Neu chi bi nhieu 1-2 nhip (dac thu cua chuan 1-wire DHT), giu gia tri hop le gan nhat
+      // Chi bao mat tin hieu neu loi lien tiep >= 5 lan (~12s)
+      if (++dhtFailures >= 5) {
+        s.temp = NAN;
+        s.hum = NAN;
+      }
+    }
   }
 }
 
@@ -201,6 +263,8 @@ void updateRain() {
 
 // ===================== LOGIC TUOI =====================
 void control() {
+  if (isEmergencyStopped) return;
+
   // 1) An toan - ap dung cho ca AUTO va MANUAL
   if (pumpOn) {
     if (s.raining)                                  setPump(false, "RAIN");
@@ -343,15 +407,19 @@ String serialBuffer = "";
 void handleSerial() {
   while (Serial.available()) {
     char c = (char)Serial.read();
-    if (c == '\r') continue;
-    if (c == '\n') {
+    if (c == '\r' || c == '\n') {
       serialBuffer.trim();
       if (serialBuffer.length() > 0) {
         processSerialCommand(serialBuffer);
       }
       serialBuffer = "";
     } else {
-      if (serialBuffer.length() < 120) {
+      // Neu chua co chuoi lenh dai va nhan phim lenh 1 ky tu -> thuc thi ngay lap tuc
+      if (serialBuffer.length() == 0 && strchr("aAmMpPsSlLhH", c)) {
+        String singleCmd = "";
+        singleCmd += c;
+        processSerialCommand(singleCmd);
+      } else if (serialBuffer.length() < 120) {
         serialBuffer += c;
       }
     }
@@ -389,6 +457,186 @@ void updateLcd() {
   lcdLine(1, l2);
 }
 
+// ===================== FREERTOS NETWORK & FIREBASE CLOUD TASK (CORE 0) =====================
+static unsigned long lastHandledControlTime = 0;
+
+void syncFirebaseTelemetry(WiFiClientSecure &client) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  // 1. Cap nhat Heartbeat Status (Online)
+  HTTPClient https;
+  https.setTimeout(2500);
+  String url = "https://" + String(system_secrets::FIREBASE_HOST) + "/garden/status.json";
+  if (https.begin(client, url)) {
+    https.addHeader("Content-Type", "application/json");
+    https.PATCH("{\"online\":true,\"lastHeartbeat\":{\".sv\":\"timestamp\"}}");
+    https.end();
+  }
+
+  // 2. Cap nhat Telemetry
+  url = "https://" + String(system_secrets::FIREBASE_HOST) + "/garden/telemetry.json";
+  if (https.begin(client, url)) {
+    https.addHeader("Content-Type", "application/json");
+
+    char tempBuf[12] = "null", humBuf[12] = "null";
+    if (!isnan(s.temp)) snprintf(tempBuf, sizeof(tempBuf), "%.1f", s.temp);
+    if (!isnan(s.hum)) snprintf(humBuf, sizeof(humBuf), "%.1f", s.hum);
+
+    char payload[360];
+    snprintf(payload, sizeof(payload),
+             "{\"soil\":%d,\"rain\":%d,\"temp\":%s,\"hum\":%s,\"pump\":%s,\"mode\":\"%s\",\"isStopped\":%s,\"raining\":%s,\"tankOk\":true,\"rssi\":%d,\"ip\":\"%s\",\"updatedAt\":{\".sv\":\"timestamp\"}}",
+             s.soil, s.rain, tempBuf, humBuf,
+             pumpOn ? "true" : "false",
+             autoMode ? "AUTO" : "MANUAL",
+             isEmergencyStopped ? "true" : "false",
+             s.raining ? "true" : "false",
+             WiFi.RSSI(),
+             WiFi.localIP().toString().c_str());
+
+    https.PUT(payload);
+    https.end();
+  }
+}
+
+void checkFirebaseCommands(WiFiClientSecure &client) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  HTTPClient https;
+  https.setTimeout(2000);
+  String url = "https://" + String(system_secrets::FIREBASE_HOST) + "/garden/control.json";
+  if (https.begin(client, url)) {
+    int code = https.GET();
+    if (code == 200) {
+      String json = https.getString();
+      int idx = json.indexOf("\"updatedAt\":");
+      if (idx >= 0) {
+        String tsStr = "";
+        for (int i = idx + 12; i < json.length(); i++) {
+          char c = json.charAt(i);
+          if (c >= '0' && c <= '9') tsStr += c;
+          else if (tsStr.length() > 0) break;
+        }
+        unsigned long cmdTime = 0;
+        if (tsStr.length() >= 10) {
+          cmdTime = tsStr.substring(0, 10).toInt();
+        }
+
+        if (cmdTime > lastHandledControlTime) {
+          lastHandledControlTime = cmdTime;
+          Serial.printf("[NET-TASK] Nhan lenh tu Firebase Cloud: %s\r\n", json.c_str());
+
+          if (json.indexOf("\"emergencyStop\":true") >= 0) {
+            setEmergencyStop(true, "FIREBASE_WEB");
+          } else if (json.indexOf("\"emergencyStop\":false") >= 0) {
+            setEmergencyStop(false, "FIREBASE_WEB");
+          }
+
+          if (json.indexOf("\"mode\":\"AUTO\"") >= 0) {
+            setMode(true, "FIREBASE_WEB");
+          } else if (json.indexOf("\"mode\":\"MANUAL\"") >= 0) {
+            setMode(false, "FIREBASE_WEB");
+          }
+
+          if (!autoMode && !isEmergencyStopped) {
+            if (json.indexOf("\"pump\":true") >= 0) {
+              setPump(true, "FIREBASE_WEB");
+            } else if (json.indexOf("\"pump\":false") >= 0) {
+              setPump(false, "FIREBASE_WEB");
+            }
+          }
+        }
+      }
+    }
+    https.end();
+  }
+}
+
+void sendFirebaseIrrigationLog(WiFiClientSecure &client, const LogEntry &entry) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  HTTPClient https;
+  https.setTimeout(3000);
+  String url = "https://" + String(system_secrets::FIREBASE_HOST) + "/garden/irrigationLog.json";
+  if (https.begin(client, url)) {
+    https.addHeader("Content-Type", "application/json");
+    char logPayload[256];
+    snprintf(logPayload, sizeof(logPayload),
+             "{\"mode\":\"%s\",\"durationSeconds\":%lu,\"soilBefore\":%d,\"soilAfter\":%d,\"startReason\":\"%s\",\"stopReason\":\"%s\",\"timestamp\":{\".sv\":\"timestamp\"}}",
+             entry.isAuto ? "AUTO" : "MANUAL",
+             entry.durS, entry.soilBefore, entry.soilAfter,
+             reasonText(entry.startWhy), reasonText(entry.stopWhy));
+    int httpCode = https.POST(logPayload);
+    Serial.printf("[NET-TASK] <<< Ghi nhat ky tuoi len Firebase Cloud: Code %d\r\n", httpCode);
+    https.end();
+  }
+}
+
+void networkTask(void *pvParameters) {
+  Serial.printf("[NET-TASK] Khoi tao tren Core %d (Priority %d, Stack 12288B)\r\n",
+                xPortGetCoreID(), uxTaskPriorityGet(NULL));
+
+  const char *ssid = SIM ? "Wokwi-GUEST" : system_secrets::WIFI_SSID;
+  const char *pass = SIM ? "" : system_secrets::WIFI_PASS;
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, pass);
+  Serial.printf("[NET-TASK] Dang khoi tao WiFi: %s (%s) ...\r\n", ssid, SIM ? "Wokwi Virtual" : "Hardware 2.4GHz");
+
+  unsigned long lastTelemetrySent = 0;
+  unsigned long lastControlChecked = 0;
+
+  WiFiClientSecure client;
+  client.setInsecure(); // Disable SSL cert check for speed & low RAM overhead
+
+  for (;;) {
+    // 1. Kiem tra nhat ky tuoi tu Core 1 qua Queue
+    LogEntry entry;
+    if (logQueue != NULL && xQueueReceive(logQueue, &entry, pdMS_TO_TICKS(100)) == pdPASS) {
+      sendFirebaseIrrigationLog(client, entry);
+    }
+
+    const unsigned long now = millis();
+
+    // 2. Dinh ky gui Telemetry va Heartbeat len Firebase moi 2.5 giay
+    if (WiFi.status() == WL_CONNECTED && now - lastTelemetrySent >= 2500) {
+      lastTelemetrySent = now;
+      syncFirebaseTelemetry(client);
+    }
+
+    // 3. Dinh ky kiem tra lenh dieu khien tu Web Dashboard moi 2 giay
+    if (WiFi.status() == WL_CONNECTED && now - lastControlChecked >= 2000) {
+      lastControlChecked = now;
+      checkFirebaseCommands(client);
+    }
+
+    // 4. LUON NGU NHUONG LOI: vTaskDelay giup IDLE0 reset watchdog
+    vTaskDelay(pdMS_TO_TICKS(150));
+  }
+}
+
+// ===================== FREERTOS EMERGENCY SAFETY TASK (CORE 1) =====================
+// Theo video 3DIOT (Phan 3):
+// - Viec quan trong nhat (ngat bom khan cap) dat muc uu tien cao nhat (Priority 3).
+// - Quy tac vang: Task uu tien cao BAT BUOC phai ngu nhieu nhat (vTaskDelay 20ms)
+//   de khong lam chet doi (starvation) cac task khac nhu loopTask (Priority 1).
+void emergencySafetyTask(void *pvParameters) {
+  Serial.printf("[SAFETY-TASK] Khoi tao tren Core %d (Priority %d - Khan cap)\r\n",
+                xPortGetCoreID(), uxTaskPriorityGet(NULL));
+  for (;;) {
+    if (pumpOn) {
+      const unsigned long runTime = millis() - pumpStartMs;
+      if (runTime >= pumpMaxMs) {
+        setPump(false, "MAX_TIME");
+        Serial.println("[SAFETY-TASK (Priority 3)] Preemption! Ngat bom khan cap do chay qua gio.");
+      } else if (s.raining) {
+        setPump(false, "RAIN");
+        Serial.println("[SAFETY-TASK (Priority 3)] Preemption! Ngat bom khan cap do troi mua.");
+      }
+    }
+    // Ngu 20ms: 1 giay chi thuc 50 lan, 99.8% thoi gian tra loi cho loopTask
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
+
 // ===================== SETUP / LOOP =====================
 void setup() {
   // Dat muc TAT truoc khi chuyen OUTPUT de relay khong giat luc khoi dong
@@ -396,7 +644,7 @@ void setup() {
   pinMode(PIN_RELAY, OUTPUT);
   digitalWrite(PIN_RELAY, RELAY_ACTIVE_LOW ? HIGH : LOW);
   pinMode(PIN_LED, OUTPUT);
-  pinMode(PIN_MODE, INPUT);
+  pinMode(PIN_MODE, INPUT_PULLUP);
   pinMode(PIN_BTN, INPUT_PULLUP);
 
   if (SIM) {  // LEDC san sang nhung duty 0: bom OFF khong co xung STEP
@@ -434,6 +682,34 @@ void setup() {
   Serial.printf("\r\n[INFO] He thong san sang | %s\r\n", SIM ? "WOKWI" : "PHAN CUNG");
   Serial.printf("[INFO] Nguong hoat dong: Dat kho <%d%%, Du am >=%d%%, Mua >=%d%%, Max bom %lus, Nghi %lus\r\n",
                 soilDry, soilWet, rainThreshold, pumpMaxMs / 1000, pumpRestMs / 1000);
+
+  // ===================== KHOI TAO FREERTOS =====================
+  // 1. Khoi tao Mutex va Queue FreeRTOS (Giao tiep an toan giua cac task)
+  pumpMutex = xSemaphoreCreateMutex();
+  logQueue = xQueueCreate(LOG_SIZE, sizeof(LogEntry));
+
+  // 2. Tao Network Task tren Core 0 (Priority 1, Stack 12288 bytes)
+  xTaskCreatePinnedToCore(
+      networkTask,
+      "netTask",
+      12288,
+      NULL,
+      1,
+      NULL,
+      0  // Ghim vao Core 0
+  );
+
+  // 3. Tao Emergency Safety Task tren Core 1 (Priority 3, Stack 2048 bytes)
+  xTaskCreatePinnedToCore(
+      emergencySafetyTask,
+      "safetyTask",
+      2048,
+      NULL,
+      3, // Priority 3: Cao hon loopTask (Priority 1)
+      NULL,
+      1  // Ghim vao Core 1
+  );
+
   report();
 }
 
